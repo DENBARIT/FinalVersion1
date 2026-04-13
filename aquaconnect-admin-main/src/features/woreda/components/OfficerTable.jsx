@@ -15,7 +15,12 @@ const TYPE_STYLES = {
   LEAK_DETECTION_TEAM: "bg-[rgba(236,72,153,0.14)] text-[#EC4899]",
 };
 
-export default function OfficerTable({ officers, onEdit, onDelete }) {
+export default function OfficerTable({
+  officers,
+  onEdit,
+  onDelete,
+  onSuspend,
+}) {
   if (!officers.length)
     return <EmptyState message="No field officers found." />;
 
@@ -89,6 +94,14 @@ export default function OfficerTable({ officers, onEdit, onDelete }) {
                   >
                     Edit
                   </button>
+                  {onSuspend ? (
+                    <button
+                      onClick={() => onSuspend(o)}
+                      className="px-3 py-1 rounded-lg text-[10px] bg-[rgba(224,171,69,0.12)] text-[#f0c66f] hover:bg-[rgba(224,171,69,0.24)] transition-colors"
+                    >
+                      {o.status === "SUSPENDED" ? "Activate" : "Suspend"}
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => onDelete(o)}
                     className="px-3 py-1 rounded-lg text-[10px] bg-[rgba(226,75,74,0.08)] text-[#E24B4A] hover:bg-[rgba(226,75,74,0.18)] transition-colors"

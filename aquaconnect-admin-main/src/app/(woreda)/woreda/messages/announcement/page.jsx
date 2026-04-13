@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getJwtPayload } from "@/services/apiClient";
+import { apiRequest, getJwtPayload } from "@/services/apiClient";
 import { superAdminService } from "@/features/super-admin/services/superAdmin.service";
 
 const TEMPLATE_STORAGE_KEY = "citywater_woreda_announcement_templates_v1";
@@ -64,9 +64,48 @@ const EMOJI_OPTIONS = [
   "🔔",
 ];
 
+const readWoredaId = (source) => {
+  if (!source) {
+    return "";
+  }
+
+  const candidates = [
+    source?.woredaId,
+    source?.scopeWoredaId,
+    source?.woreda?.id,
+    source?.woreda?._id,
+    source?.user?.woredaId,
+    source?.user?.scopeWoredaId,
+    source?.user?.woreda?.id,
+    source?.data?.woredaId,
+    source?.data?.woreda?.id,
+  ];
+
+  return String(candidates.find((candidate) => candidate) || "").trim();
+};
+
+const readWoredaName = (source) => {
+  if (!source) {
+    return "";
+  }
+
+  const candidates = [
+    source?.woredaName,
+    source?.woreda?.name,
+    source?.user?.woredaName,
+    source?.user?.woreda?.name,
+    source?.data?.woredaName,
+    source?.data?.woreda?.name,
+  ];
+
+  return String(candidates.find((candidate) => candidate) || "").trim();
+};
+
 export default function WoredaAnnouncementPage() {
-  const woredaId = getJwtPayload()?.woredaId || "";
-  const woredaName = getJwtPayload()?.woredaName || "your woreda";
+  const [woredaId, setWoredaId] = useState(() => readWoredaId(getJwtPayload()));
+  const [woredaName, setWoredaName] = useState(
+    () => readWoredaName(getJwtPayload()) || "your woreda",
+  );
 
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
@@ -104,7 +143,7 @@ export default function WoredaAnnouncementPage() {
 
     setLoading(true);
     try {
-      const result = await superAdminService.getAnnouncements(60);
+      const result = await superAdminService.getSubcityAnnouncements(60);
       const normalized = Array.isArray(result)
         ? result
         : Array.isArray(result?.data)
@@ -120,6 +159,38 @@ export default function WoredaAnnouncementPage() {
 
   useEffect(() => {
     void loadAnnouncements();
+  }, [woredaId]);
+
+  useEffect(() => {
+    if (woredaId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const resolveFromProfile = async () => {
+      try {
+        const profile = await apiRequest("/auth/me", { useAuth: true });
+        const profileWoredaId = readWoredaId(profile);
+        const profileWoredaName = readWoredaName(profile);
+
+        if (!cancelled && profileWoredaId) {
+          setWoredaId(profileWoredaId);
+        }
+
+        if (!cancelled && profileWoredaName) {
+          setWoredaName(profileWoredaName);
+        }
+      } catch (_error) {
+        // Keep current state; submit path handles unresolved woreda context.
+      }
+    };
+
+    void resolveFromProfile();
+
+    return () => {
+      cancelled = true;
+    };
   }, [woredaId]);
 
   useEffect(() => {
@@ -301,11 +372,6 @@ export default function WoredaAnnouncementPage() {
     setError("");
     setMessageText("");
 
-    if (!woredaId) {
-      setError("Unable to detect your woreda.");
-      return;
-    }
-
     if (!title.trim()) {
       setError("Announcement title is required.");
       return;
@@ -318,15 +384,40 @@ export default function WoredaAnnouncementPage() {
 
     setSending(true);
     try {
+      let resolvedWoredaId = woredaId;
+
+      if (!resolvedWoredaId) {
+        resolvedWoredaId = readWoredaId(getJwtPayload());
+      }
+
+      if (!resolvedWoredaId) {
+        const profile = await apiRequest("/auth/me", { useAuth: true });
+        resolvedWoredaId = readWoredaId(profile);
+        const profileWoredaName = readWoredaName(profile);
+        if (profileWoredaName) {
+          setWoredaName(profileWoredaName);
+        }
+      }
+
+      if (!resolvedWoredaId) {
+        setError("Unable to detect your woreda.");
+        return;
+      }
+
+      if (resolvedWoredaId !== woredaId) {
+        setWoredaId(resolvedWoredaId);
+      }
+
       const payload = {
         title: title.trim(),
         message: message.trim(),
         targetGroup: "WOREDA_USERS",
         sendEmail,
-        targetWoredaIds: [woredaId],
+        targetWoredaIds: [resolvedWoredaId],
       };
 
-      const response = await superAdminService.createAnnouncement(payload);
+      const response =
+        await superAdminService.createSubcityAnnouncement(payload);
       setMessageText(response?.message || "Announcement sent successfully.");
       setTitle("");
       setMessage("");
@@ -439,6 +530,7 @@ export default function WoredaAnnouncementPage() {
               Announcement Title
             </span>
             <input
+              suppressHydrationWarning
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onPaste={handleDraftPaste}
@@ -453,6 +545,7 @@ export default function WoredaAnnouncementPage() {
               Announcement Body
             </span>
             <textarea
+              suppressHydrationWarning
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onPaste={handleDraftPaste}
@@ -505,6 +598,7 @@ export default function WoredaAnnouncementPage() {
               </p>
               <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2">
                 <input
+                  suppressHydrationWarning
                   value={templateName}
                   onChange={(e) => setTemplateName(e.target.value)}
                   placeholder="Template name (e.g. Woreda maintenance alert)"
@@ -512,6 +606,7 @@ export default function WoredaAnnouncementPage() {
                   className="w-full bg-[rgba(29,158,117,0.04)] border border-[rgba(29,158,117,0.1)] rounded-lg px-3 py-2 text-xs text-[#e8f4f0] placeholder-[rgba(232,244,240,0.25)] outline-none focus:border-[rgba(29,158,117,0.4)]"
                 />
                 <select
+                  suppressHydrationWarning
                   value={templateLanguage}
                   onChange={(e) => setTemplateLanguage(e.target.value)}
                   className="bg-[rgba(29,158,117,0.04)] border border-[rgba(29,158,117,0.1)] rounded-lg px-3 py-2 text-xs text-[#e8f4f0]"
@@ -534,6 +629,7 @@ export default function WoredaAnnouncementPage() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <label className="inline-flex items-center gap-2 text-xs text-[rgba(232,244,240,0.72)]">
             <input
+              suppressHydrationWarning
               type="checkbox"
               checked={sendEmail}
               onChange={(e) => setSendEmail(e.target.checked)}

@@ -24,31 +24,58 @@ export default function OfficerForm({
   defaultValues,
   loading,
   typeOptions = OFFICER_TYPE_OPTIONS,
+  strictValidation = false,
+  onValidationError,
 }) {
   const {
     register,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm({
     defaultValues: EMPTY_FORM_VALUES,
-  onValidationError,
-  strictValidation = false,
     shouldUnregister: true,
   });
+
+  const isEditMode = Boolean(defaultValues?.id);
+
+  const normalizePhoneInput = (rawValue) => {
+    const source = String(rawValue || "");
+    const digits = source.replace(/\D/g, "");
+    const rest = digits.startsWith("251") ? digits.slice(3) : digits;
+
+    return `+251${rest}`.slice(0, 13);
+  };
+
+  const normalizeNationalId = (rawValue) => {
+    return String(rawValue || "")
+      .replace(/\D/g, "")
+      .slice(0, 12);
+  };
 
   useEffect(() => {
     const nextValues = defaultValues
       ? {
           fullName: defaultValues.fullName ?? "",
           email: defaultValues.email ?? "",
-    watch,
-          phoneNumber: defaultValues.phoneE164 ?? "",
+          phoneNumber: defaultValues.phoneE164 ?? "+251",
           nationalId: defaultValues.nationalId ?? "",
           fieldOfficerType: defaultValues.fieldOfficerType ?? "",
           password: "",
         }
-      : { ...EMPTY_FORM_VALUES };
+      : { ...EMPTY_FORM_VALUES, phoneNumber: "+251" };
+
+    reset(nextValues);
+  }, [defaultValues, reset]);
+
+  useEffect(() => {
+    if (typeof onValidationError === "function" && Object.keys(errors).length) {
+      onValidationError(errors);
+    }
+  }, [errors, onValidationError]);
+
   const passwordValue = watch("password", "");
 
   const passwordStrength = useMemo(() => {
@@ -98,14 +125,20 @@ export default function OfficerForm({
       colorClass: "bg-[#1D9E75]",
     };
   }, [isEditMode, passwordValue]);
-    reset(nextValues);
-  }, [defaultValues, reset]);
+
+  const submitForm = (data) => {
+    return onSubmit({
+      ...data,
+      phoneNumber: data.phoneNumber?.trim() || "",
+    });
+  };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)}>
+    <form onSubmit={handleSubmit(submitForm)}>
       <FormField label="Full name" error={errors.fullName?.message}>
         <Input
           autoComplete="off"
+          placeholder="Abebe Kebede"
           error={errors.fullName}
           {...register("fullName", {
             required: "Full name is required.",
@@ -120,10 +153,19 @@ export default function OfficerForm({
         <Input
           type="email"
           autoComplete="off"
+          placeholder="abebe@company.com"
           error={errors.email}
           {...register("email", {
             required: "Email is required.",
-            pattern: { value: /\S+@\S+\.\S+/, message: "Enter a valid email." },
+            pattern: strictValidation
+              ? {
+                  value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.com$/i,
+                  message: "Email must end with .com.",
+                }
+              : {
+                  value: /\S+@\S+\.\S+/,
+                  message: "Enter a valid email.",
+                },
           })}
         />
       </FormField>
@@ -131,20 +173,19 @@ export default function OfficerForm({
       <FormField label="Phone number" error={errors.phoneNumber?.message}>
         <Input
           autoComplete="off"
+          placeholder="+251912345678"
+          maxLength={13}
           error={errors.phoneNumber}
           {...register("phoneNumber", {
             required: "Phone number is required.",
+            onChange: (event) => {
+              const normalized = normalizePhoneInput(event.target.value);
+              setValue("phoneNumber", normalized, { shouldValidate: true });
+            },
             pattern: {
-              value: /^\+2519\d{8}$/,
-            pattern: strictValidation
-              ? {
-                  value: /^[A-Z0-9._%+-]+@gmail\.com$/i,
-                  message: "Email must be a @gmail.com address.",
-                }
-              : {
-                  value: /\S+@\S+\.\S+/,
-                  message: "Enter a valid email.",
-                },
+              value: /^\+251\d{9}$/,
+              message:
+                "Phone number must start with +251 and be 13 characters.",
             },
           })}
         />
@@ -153,33 +194,36 @@ export default function OfficerForm({
       <FormField label="National ID" error={errors.nationalId?.message}>
         <Input
           autoComplete="off"
+          placeholder="123456789012"
+          maxLength={12}
           error={errors.nationalId}
           {...register("nationalId", {
             required: "National ID is required.",
-              value: strictValidation ? /^\+251\d{9}$/ : /^\+2519\d{8}$/,
-              message: strictValidation
-                ? "Phone number must start with +251 and be 13 characters."
-                : "Must start with +2519 and be 13 digits.",
+            onChange: (event) => {
+              const normalized = normalizeNationalId(event.target.value);
+              setValue("nationalId", normalized, { shouldValidate: true });
+            },
+            pattern: {
+              value: /^\d{12}$/,
+              message: "National ID must be exactly 12 digits.",
+            },
           })}
         />
       </FormField>
 
-      {!defaultValues && (
+      {!isEditMode && (
         <FormField label="Password" error={errors.password?.message}>
           <Input
             type="password"
             autoComplete="new-password"
+            placeholder="Abc@1234"
             error={errors.password}
             {...register("password", {
-            pattern: strictValidation
-              ? {
-                  value: /^\d{12}$/,
-                  message: "National ID must be exactly 12 digits.",
-                }
-              : {
-                  value: /^.{12}$/,
-                  message: "Must be exactly 12 characters.",
-                },
+              required: "Password is required.",
+              minLength: {
+                value: 8,
+                message: "Password must be at least 8 characters.",
+              },
               validate: {
                 upper: (v) => /[A-Z]/.test(v) || "Must contain uppercase.",
                 lower: (v) => /[a-z]/.test(v) || "Must contain lowercase.",
@@ -189,6 +233,20 @@ export default function OfficerForm({
               },
             })}
           />
+
+          {passwordValue ? (
+            <div className="mt-2">
+              <div className="h-1.5 w-full rounded-full bg-[rgba(232,244,240,0.1)] overflow-hidden">
+                <div
+                  className={`h-full transition-all ${passwordStrength.colorClass}`}
+                  style={{ width: `${passwordStrength.percent}%` }}
+                />
+              </div>
+              <p className="mt-1 text-[10px] text-[rgba(232,244,240,0.5)]">
+                Strength: {passwordStrength.label}
+              </p>
+            </div>
+          ) : null}
         </FormField>
       )}
 
@@ -215,7 +273,7 @@ export default function OfficerForm({
       >
         {loading
           ? "Saving..."
-          : defaultValues
+          : isEditMode
             ? "Update Officer"
             : "Create Officer"}
       </button>

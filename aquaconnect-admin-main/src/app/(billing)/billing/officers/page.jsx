@@ -28,13 +28,15 @@ export default function BillingOfficersPage() {
   }, [subcities]);
 
   const activeCount = useMemo(
-    () => billingOfficers.filter((officer) => officer.status === "ACTIVE").length,
+    () =>
+      billingOfficers.filter((officer) => officer.status === "ACTIVE").length,
     [billingOfficers],
   );
 
   const suspendedCount = useMemo(
     () =>
-      billingOfficers.filter((officer) => officer.status === "SUSPENDED").length,
+      billingOfficers.filter((officer) => officer.status === "SUSPENDED")
+        .length,
     [billingOfficers],
   );
 
@@ -118,7 +120,10 @@ export default function BillingOfficersPage() {
 
     setActionLoading(true);
     try {
-      await superAdminService.suspendSubcityBillingOfficer(officer.id, nextStatus);
+      await superAdminService.suspendSubcityBillingOfficer(
+        officer.id,
+        nextStatus,
+      );
       setMessageText(
         `${officer.fullName || "Officer"} is now ${nextStatus.toLowerCase()}.`,
       );
@@ -185,15 +190,13 @@ export default function BillingOfficersPage() {
       </div>
 
       <div className="bg-[#05141f] border border-[rgba(29,158,117,0.08)] rounded-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(29,158,117,0.08)]">
-            <h2 className="font-syne font-bold text-sm tracking-tight">
-              Billing Officers
-                    "Actions",
-            </h2>
-            <p className="text-[10px] text-[rgba(232,244,240,0.3)] mt-0.5">
-              View billing officers registered by subcity admins
-            </p>
-          </div>
+        <div className="px-6 py-4 border-b border-[rgba(29,158,117,0.08)]">
+          <h2 className="font-syne font-bold text-sm tracking-tight">
+            Billing Officers
+          </h2>
+          <p className="text-[10px] text-[rgba(232,244,240,0.3)] mt-0.5">
+            View billing officers registered by subcity admins
+          </p>
         </div>
 
         <div className="px-6 py-4 overflow-x-auto">
@@ -214,7 +217,7 @@ export default function BillingOfficersPage() {
                     "Email",
                     "Phone",
                     "Subcity",
-                    "Woreda",
+                    "Actions",
                     "Status",
                     "Created",
                   ].map((header) => (
@@ -271,7 +274,9 @@ export default function BillingOfficersPage() {
                           onClick={() => handleSuspendToggle(officer)}
                           className="rounded-lg px-2.5 py-1 text-[10px] font-semibold bg-[rgba(224,171,69,0.12)] text-[#f0c66f] hover:bg-[rgba(224,171,69,0.24)]"
                         >
-                          {officer.status === "SUSPENDED" ? "Activate" : "Suspend"}
+                          {officer.status === "SUSPENDED"
+                            ? "Activate"
+                            : "Suspend"}
                         </button>
                         <button
                           type="button"

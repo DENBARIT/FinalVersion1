@@ -31,6 +31,11 @@ export default function FieldOfficersPage() {
   const [selectedMemberIds, setSelectedMemberIds] = useState([]);
   const [teams, setTeams] = useState([]);
   const [teamError, setTeamError] = useState("");
+  const [actionToast, setActionToast] = useState(null);
+
+  const showToast = (type, text) => {
+    setActionToast({ type, text });
+  };
 
   useEffect(() => {
     const openCreate = () => setCreateOpen(true);
@@ -55,6 +60,18 @@ export default function FieldOfficersPage() {
       setTeams([]);
     }
   }, [teamStorageKey]);
+
+  useEffect(() => {
+    if (!actionToast) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setActionToast(null);
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [actionToast]);
 
   const persistTeams = (nextTeams) => {
     setTeams(nextTeams);
@@ -104,16 +121,44 @@ export default function FieldOfficersPage() {
   }, [allOfficers]);
 
   const handleCreate = async (data) => {
-    await createOfficer(data);
-    setCreateOpen(false);
+    try {
+      await createOfficer(data);
+      setCreateOpen(false);
+      showToast("success", "Field officer created.");
+    } catch (error) {
+      showToast("error", error?.message || "Field officer creation failed.");
+    }
   };
   const handleUpdate = async (data) => {
-    await updateOfficer(editTarget.id, data);
-    setEditTarget(null);
+    try {
+      await updateOfficer(editTarget.id, data);
+      setEditTarget(null);
+      showToast("success", "Field officer updated successfully.");
+    } catch (error) {
+      showToast("error", error?.message || "Unable to update field officer.");
+    }
   };
   const handleDelete = async () => {
-    await deleteOfficer(deleteTarget.id);
-    setDeleteTarget(null);
+    try {
+      await deleteOfficer(deleteTarget.id);
+      setDeleteTarget(null);
+      showToast("success", "Field officer deleted successfully.");
+    } catch (error) {
+      showToast("error", error?.message || "Unable to delete field officer.");
+    }
+  };
+
+  const handleSuspendToggle = async (officer) => {
+    const nextStatus = officer.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED";
+    try {
+      await updateOfficer(officer.id, { status: nextStatus });
+      showToast(
+        "success",
+        `${officer.fullName || "Officer"} is now ${nextStatus.toLowerCase()}.`,
+      );
+    } catch (error) {
+      showToast("error", error?.message || "Unable to update officer status.");
+    }
   };
 
   const toggleMemberSelection = (memberId) => {
@@ -179,6 +224,20 @@ export default function FieldOfficersPage() {
 
   return (
     <div className="text-[#e8f4f0]">
+      {actionToast && (
+        <div className="fixed top-5 left-1/2 z-3000 -translate-x-1/2">
+          <div
+            className={`rounded-xl border px-4 py-2 text-xs shadow-lg whitespace-nowrap ${
+              actionToast.type === "success"
+                ? "border-[rgba(29,158,117,0.45)] bg-[#0b2a22] text-[#7ce4be]"
+                : "border-[rgba(226,75,74,0.45)] bg-[#2a1211] text-[#ff9c9b]"
+            }`}
+          >
+            {actionToast.text}
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
@@ -291,6 +350,7 @@ export default function FieldOfficersPage() {
             officers={officers}
             onEdit={setEditTarget}
             onDelete={setDeleteTarget}
+            onSuspend={handleSuspendToggle}
           />
           <Pagination
             page={page}

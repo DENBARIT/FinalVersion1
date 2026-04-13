@@ -113,6 +113,19 @@ export default function BillingOfficersPage() {
     }
   };
 
+  const handleSuspendToggle = async (officer) => {
+    const nextStatus = officer.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED";
+    try {
+      await updateOfficer(officer.id, { status: nextStatus });
+      showToast(
+        "success",
+        `${officer.fullName || "Officer"} is now ${nextStatus.toLowerCase()}.`,
+      );
+    } catch (error) {
+      showToast("error", error?.message || "Unable to update officer status.");
+    }
+  };
+
   return (
     <div className="text-[#e8f4f0]">
       {actionToast && (
@@ -177,6 +190,7 @@ export default function BillingOfficersPage() {
             officers={officers}
             onEdit={setEditTarget}
             onDelete={setDeleteTarget}
+            onSuspend={handleSuspendToggle}
           />
           <Pagination
             page={page}
