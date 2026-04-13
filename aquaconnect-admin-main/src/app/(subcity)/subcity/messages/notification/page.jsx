@@ -1,0 +1,108 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { getJwtPayload } from "@/services/apiClient";
+import { superAdminService } from "@/features/super-admin/services/superAdmin.service";
+
+export default function SubcityNotificationPage() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const subCityId = getJwtPayload()?.subCityId || "";
+
+  useEffect(() => {
+    const load = async () => {
+      if (!subCityId) {
+        setRows([]);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const [announcementFeed, scheduleFeed] = await Promise.all([
+          superAdminService.getUserAnnouncements(),
+          superAdminService.getUserScheduleNotifications(),
+        ]);
+
+        const announcements = Array.isArray(announcementFeed?.items)
+          ? announcementFeed.items
+          : Array.isArray(announcementFeed?.data?.items)
+            ? announcementFeed.data.items
+            : [];
+
+        const scheduleNotifications = Array.isArray(scheduleFeed?.items)
+          ? scheduleFeed.items
+          : Array.isArray(scheduleFeed?.data?.items)
+            ? scheduleFeed.data.items
+            : [];
+
+        const notifications = [
+          ...announcements.map((item) => ({
+            id: `announcement-${item.id}`,
+            title: item.title || "Announcement",
+            message: item.message || "",
+            createdAt: item.createdAt,
+            source: "SUPER_ADMIN",
+          })),
+          ...scheduleNotifications.map((item) => ({
+            id: `notification-${item.id}`,
+            title: item.title || "Notification",
+            message: item.message || "",
+            createdAt: item.createdAt,
+            source: "SUBCITY",
+          })),
+        ].sort(
+          (a, b) =>
+            new Date(b.createdAt || 0).getTime() -
+            new Date(a.createdAt || 0).getTime(),
+        );
+
+        setRows(notifications);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
+  }, [subCityId]);
+
+  return (
+    <div className="text-[#e8f4f0] bg-[#05141f] border border-[rgba(29,158,117,0.08)] rounded-2xl overflow-hidden">
+      <div className="px-6 py-4 border-b border-[rgba(29,158,117,0.08)]">
+        <h2 className="font-syne font-bold text-sm tracking-tight">
+          Notification
+        </h2>
+        <p className="text-[10px] text-[rgba(232,244,240,0.3)] mt-0.5">
+          {loading ? "Loading..." : `${rows.length} notifications`}
+        </p>
+      </div>
+      <div className="px-6 py-4 space-y-3">
+        {rows.map((n) => (
+          <div
+            key={n.id}
+            className="rounded-xl border border-[rgba(29,158,117,0.08)] bg-[rgba(29,158,117,0.03)] p-4"
+          >
+            <p className="font-syne text-sm text-[rgba(232,244,240,0.9)]">
+              {n.title}
+            </p>
+            <p className="text-[10px] uppercase tracking-wide text-[rgba(29,158,117,0.8)] mt-1">
+              {n.source === "SUPER_ADMIN"
+                ? "Super Admin Announcement"
+                : "Subcity Notification"}
+            </p>
+            <p className="text-xs text-[rgba(232,244,240,0.55)] mt-1">
+              {n.message}
+            </p>
+            <p className="text-[10px] text-[rgba(232,244,240,0.35)] mt-2">
+              {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
+            </p>
+          </div>
+        ))}
+        {!loading && !rows.length && (
+          <p className="text-[10px] text-[rgba(232,244,240,0.35)]">
+            No notifications available.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
