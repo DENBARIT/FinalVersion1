@@ -165,9 +165,24 @@ export default function Sidebar({
             ) : (
               <div className="h-3" />
             )}
-            {items.map(({ label, icon, href, action }) => {
+            {items.map(({ label, icon, href, action, kind }) => {
               const active = href ? pathname === href : false;
               const itemClass = `flex items-center gap-2 px-3 py-2 mx-2 rounded-lg transition-all text-xs mb-0.5 ${active ? "bg-[rgba(29,158,117,0.12)] text-[#1D9E75]" : "text-[rgba(232,244,240,0.45)] hover:bg-[rgba(29,158,117,0.07)] hover:text-[#e8f4f0]"}`;
+
+              if (kind === "group") {
+                if (collapsed) {
+                  return <div key={`group-${label}`} className="h-1" />;
+                }
+
+                return (
+                  <p
+                    key={`group-${label}`}
+                    className="px-3 pt-2 pb-1 mx-2 text-[9px] uppercase tracking-widest text-[rgba(232,244,240,0.25)]"
+                  >
+                    {label}
+                  </p>
+                );
+              }
 
               if (action === "change-password") {
                 return (

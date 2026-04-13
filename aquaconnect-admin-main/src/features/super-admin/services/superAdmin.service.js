@@ -181,6 +181,26 @@ export const superAdminService = {
       ...withAuth,
       method: "DELETE",
     }),
+  getWoredaBillingOfficerAssignments: (id) =>
+    apiRequest(`/subcity-admin/woreda-billing-officer/${id}/assignments`, {
+      ...withAuth,
+    }),
+  assignWoredaBillingOfficer: (id, woredaIds = []) =>
+    apiRequest(`/subcity-admin/woreda-billing-officer/${id}/assignments`, {
+      ...withAuth,
+      method: "PUT",
+      body: { woredaIds },
+    }),
+  getWoredaComplaintOfficerAssignments: (id) =>
+    apiRequest(`/subcity-admin/woreda-complaint-officer/${id}/assignments`, {
+      ...withAuth,
+    }),
+  assignWoredaComplaintOfficer: (id, woredaIds = []) =>
+    apiRequest(`/subcity-admin/woreda-complaint-officer/${id}/assignments`, {
+      ...withAuth,
+      method: "PUT",
+      body: { woredaIds },
+    }),
   getBillingOfficers: ({ subCityId = "", woredaId = "" } = {}) =>
     apiRequest("/super-admin/billing-officers", {
       ...withAuth,
@@ -225,6 +245,27 @@ export const superAdminService = {
       ...withAuth,
       method: "PATCH",
       body: { status },
+    }),
+  assignComplaintFieldOfficer: (id, fieldOfficerId) =>
+    apiRequest(`/super-admin/complaints/${id}/assign-field-officer`, {
+      ...withAuth,
+      method: "PATCH",
+      body: { fieldOfficerId },
+    }),
+  escalateComplaint: (id, reason = "") =>
+    apiRequest(`/super-admin/complaints/${id}/escalate`, {
+      ...withAuth,
+      method: "PATCH",
+      body: { reason },
+    }),
+  contactComplaintCustomer: (
+    id,
+    { subject = "", message = "", sendEmail = true, sendInApp = true } = {},
+  ) =>
+    apiRequest(`/super-admin/complaints/${id}/contact`, {
+      ...withAuth,
+      method: "POST",
+      body: { subject, message, sendEmail, sendInApp },
     }),
 
   // Schedules

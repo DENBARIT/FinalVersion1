@@ -34,12 +34,12 @@ router.use(authenticate);
 // ANNOUNCEMENTS (Subcity admin + subcity billing officer)
 router.get(
   '/announcements',
-  authorize('SUBCITY_ADMIN', 'SUBCITY_BILLING_OFFICER'),
+  authorize('SUBCITY_ADMIN', 'SUBCITY_BILLING_OFFICER', 'WOREDA_ADMINS', 'WOREDA_ADMIN'),
   SubcityAdminController.getAnnouncements
 );
 router.post(
   '/announcements',
-  authorize('SUBCITY_ADMIN', 'SUBCITY_BILLING_OFFICER'),
+  authorize('SUBCITY_ADMIN', 'SUBCITY_BILLING_OFFICER', 'WOREDA_ADMINS', 'WOREDA_ADMIN'),
   SubcityAdminController.createAnnouncement
 );
 
@@ -74,6 +74,15 @@ router.patch('/billing-officer/:id/status', SubcityAdminController.suspendBillin
 
 router.delete('/billing-officer/:id', SubcityAdminController.deleteBillingOfficer);
 
+router.get(
+  '/woreda-billing-officer/:id/assignments',
+  SubcityAdminController.getWoredaBillingOfficerAssignments
+);
+router.put(
+  '/woreda-billing-officer/:id/assignments',
+  SubcityAdminController.assignWoredaBillingOfficer
+);
+
 // COMPLAINT OFFICER
 router.get('/complaint-officer', SubcityAdminController.getComplaintOfficers);
 
@@ -89,6 +98,15 @@ router.put('/complaint-officer/:id', SubcityAdminController.updateComplaintOffic
 router.patch('/complaint-officer/:id/status', SubcityAdminController.suspendComplaintOfficer);
 
 router.delete('/complaint-officer/:id', SubcityAdminController.deleteComplaintOfficer);
+
+router.get(
+  '/woreda-complaint-officer/:id/assignments',
+  SubcityAdminController.getWoredaComplaintOfficerAssignments
+);
+router.put(
+  '/woreda-complaint-officer/:id/assignments',
+  SubcityAdminController.assignWoredaComplaintOfficer
+);
 
 // FIELD OFFICER
 router.post(

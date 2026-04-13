@@ -455,12 +455,16 @@ export async function sendAdminVerificationOtp(to, otpOrDetails) {
   const phoneE164 = details.phoneE164 || '';
   const nationalId = details.nationalId || '';
   const password = details.password || '';
-  const createdByName = details.createdByName || 'AquaConnect Super Admin';
-  const createdByEmail = details.createdByEmail || 'Not available';
-  const createdAt = details.createdAt ? new Date(details.createdAt) : new Date();
-  const createdAtText = Number.isNaN(createdAt.getTime())
+  const assignedByName =
+    details.assignedByName || details.createdByName || 'AquaConnect Super Admin';
+  const assignedByEmail = details.assignedByEmail || details.createdByEmail || 'Not available';
+  const assignedByPhone = details.assignedByPhone || 'Not available';
+  const assignedByNationalId = details.assignedByNationalId || 'Not available';
+  const assignedAt = details.assignedAt || details.createdAt;
+  const assignedAtDate = assignedAt ? new Date(assignedAt) : new Date();
+  const assignedAtText = Number.isNaN(assignedAtDate.getTime())
     ? new Date().toISOString()
-    : createdAt.toISOString();
+    : assignedAtDate.toISOString();
   const assignedSubCity = details.assignedSubCity || 'Not assigned';
   const assignedWoreda = details.assignedWoreda || 'Not assigned';
   const supportEmail =
@@ -469,7 +473,7 @@ export async function sendAdminVerificationOtp(to, otpOrDetails) {
   const subject = `AquaConnect ${roleLabel} Verification OTP`;
   const text = `Hello,
 
-Your One-Time Password (OTP) for AquaConnect ${roleLabel} email verification is: ${otp}
+Verification code: ${otp || 'N/A'}
 
 Account details:
 - Position: ${roleLabel}
@@ -477,13 +481,15 @@ Account details:
 - Email: ${email}
 - Phone: ${phoneE164 || 'Not available'}
 - National ID: ${nationalId || 'Not available'}
-- Temporary password: ${password || 'Use the password provided by your creator'}
 - Password: ${password || 'Use the password provided by your creator'}
 - Assigned subcity: ${assignedSubCity}
 - Assigned woreda: ${assignedWoreda}
+- Assigned date: ${assignedAtText}
 
-Created by: ${createdByName} (${createdByEmail})
-Created at: ${createdAtText}
+Assigned by: ${assignedByName}
+Assigned by email: ${assignedByEmail}
+Assigned by phone: ${assignedByPhone}
+Assigned by national ID: ${assignedByNationalId}
 
 Terms and conditions:
 - You are responsible for all actions done using this account.
@@ -520,11 +526,12 @@ AquaConnect Team`;
           <p style="margin: 4px 0; color: #1f2937;"><strong>National ID:</strong> ${
             nationalId || 'Not available'
           }</p>
-          <p style="margin: 4px 0; color: #1f2937;"><strong>Temporary password:</strong> ${
+          <p style="margin: 4px 0; color: #1f2937;"><strong>Password:</strong> ${
             password || 'Use the password provided by your creator'
           }</p>
           <p style="margin: 4px 0; color: #1f2937;"><strong>Assigned subcity:</strong> ${assignedSubCity}</p>
           <p style="margin: 4px 0; color: #1f2937;"><strong>Assigned woreda:</strong> ${assignedWoreda}</p>
+          <p style="margin: 4px 0; color: #1f2937;"><strong>Assigned date:</strong> ${assignedAtText}</p>
         `,
         barColor: '#0ea5e9',
         borderColor: '#bae6fd',
@@ -532,10 +539,13 @@ AquaConnect Team`;
         titleColor: '#075985',
       },
       {
-        title: 'Provisioning Details',
+        title: 'Assignment Details',
         bodyHtml: `
-          <p style="margin: 4px 0; color: #1f2937;"><strong>Created by:</strong> ${createdByName} (${createdByEmail})</p>
-          <p style="margin: 4px 0; color: #1f2937;"><strong>Created at:</strong> ${createdAtText}</p>
+          <p style="margin: 4px 0; color: #1f2937;"><strong>Assigned by:</strong> ${assignedByName}</p>
+          <p style="margin: 4px 0; color: #1f2937;"><strong>Assigned by email:</strong> ${assignedByEmail}</p>
+          <p style="margin: 4px 0; color: #1f2937;"><strong>Assigned by phone:</strong> ${assignedByPhone}</p>
+          <p style="margin: 4px 0; color: #1f2937;"><strong>Assigned by national ID:</strong> ${assignedByNationalId}</p>
+          <p style="margin: 4px 0; color: #1f2937;"><strong>Assigned date:</strong> ${assignedAtText}</p>
           <p style="margin: 4px 0; color: #1f2937;"><strong>Platform:</strong> AquaConnect City Water Management</p>
         `,
         barColor: '#14b8a6',

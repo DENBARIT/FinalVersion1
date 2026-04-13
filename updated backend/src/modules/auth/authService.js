@@ -63,6 +63,34 @@ const DAY_AMHARIC_MAP = {
   SUNDAY: 'እሑድ',
 };
 
+const COMPLAINT_CATEGORY_MAP = {
+  METER: 'METER_DAMAGE',
+  METER_PROBLEM: 'METER_DAMAGE',
+  PIPE: 'PIPE_DAMAGE',
+  TAP: 'TAP_DAMAGE',
+};
+
+const VALID_COMPLAINT_CATEGORIES = new Set([
+  'BILLING',
+  'WATER_SUPPLY',
+  'NO_WATER',
+  'LOW_PRESSURE',
+  'LEAKAGE',
+  'PIPE_DAMAGE',
+  'TAP_DAMAGE',
+  'POLLUTED_WATER',
+  'METER_DAMAGE',
+  'OTHER',
+]);
+
+function normalizeComplaintCategory(input) {
+  const normalized = String(input || '')
+    .trim()
+    .toUpperCase();
+  const mapped = COMPLAINT_CATEGORY_MAP[normalized] || normalized;
+  return VALID_COMPLAINT_CATEGORIES.has(mapped) ? mapped : 'OTHER';
+}
+
 function toTimeHHMM(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -1098,6 +1126,116 @@ class AuthService {
         preference: true,
       },
     });
+  }
+
+  async createComplaint(userId, payload) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+        subCityId: true,
+        woredaId: true,
+      },
+    });
+
+    if (!user || user.deletedAt || user.status !== 'ACTIVE') {
+      throw new Error('User not found or inactive');
+    }
+
+    if (user.role !== 'CUSTOMER') {
+      throw new Error('Only customers can submit complaints');
+    }
+
+    if (!user.subCityId || !user.woredaId) {
+      throw new Error('Your profile is missing sub city or woreda assignment');
+    }
+
+    const title = String(payload?.title || '').trim();
+    const description = String(payload?.description || '').trim();
+    const category = normalizeComplaintCategory(payload?.category);
+    const location = String(payload?.location || '').trim();
+
+    if (!title || !description) {
+      throw new Error('Complaint title and description are required');
+    }
+
+    const woredaOfficerAssignment = await prisma.complaintOfficerAssignment.findFirst({
+      where: {
+        subCityId: user.subCityId,
+        woredaId: user.woredaId,
+        isActive: true,
+        officer: {
+          role: 'WOREDA_COMPLAINT_OFFICER',
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        officerId: true,
+      },
+    });
+
+    const subCityOfficerAssignment = woredaOfficerAssignment
+      ? null
+      : await prisma.complaintOfficerAssignment.findFirst({
+          where: {
+            subCityId: user.subCityId,
+            isActive: true,
+            OR: [{ woredaId: null }, { isSubCityLevel: true }],
+            officer: {
+              role: 'SUBCITY_COMPLAINT_OFFICER',
+              status: 'ACTIVE',
+              deletedAt: null,
+            },
+          },
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          select: {
+            officerId: true,
+          },
+        });
+
+    const assignedToId =
+      woredaOfficerAssignment?.officerId || subCityOfficerAssignment?.officerId || null;
+
+    const createdComplaint = await prisma.complaint.create({
+      data: {
+        customerId: user.id,
+        subCityId: user.subCityId,
+        woredaId: user.woredaId,
+        assignedToId,
+        category,
+        title: { en: title, am: title },
+        description: { en: description, am: description },
+        ...(location ? { location } : {}),
+      },
+      include: {
+        assignedTo: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    return {
+      id: createdComplaint.id,
+      status: createdComplaint.status,
+      category: createdComplaint.category,
+      assignedTo: createdComplaint.assignedTo,
+      assignmentScope: woredaOfficerAssignment
+        ? 'WOREDA'
+        : subCityOfficerAssignment
+        ? 'SUBCITY'
+        : 'UNASSIGNED',
+      createdAt: createdComplaint.createdAt,
+    };
   }
 
   async changePassword(userId, oldPassword, newPassword) {

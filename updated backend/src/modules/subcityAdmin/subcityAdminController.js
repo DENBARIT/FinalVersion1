@@ -282,6 +282,98 @@ class SubcityAdminController {
     }
   }
 
+  static async getWoredaBillingOfficerAssignments(req, res) {
+    try {
+      const subCityId = req.user.subCityId;
+      const { id } = req.params;
+      const assignments = await SubcityAdminService.getWoredaBillingOfficerAssignments(
+        id,
+        subCityId
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: assignments,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  static async assignWoredaBillingOfficer(req, res) {
+    try {
+      const subCityId = req.user.subCityId;
+      const adminId = req.user.id;
+      const { id } = req.params;
+      const assignments = await SubcityAdminService.assignWoredaBillingOfficer(
+        id,
+        subCityId,
+        adminId,
+        req.body?.woredaIds
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Woreda billing officer assignments updated successfully',
+        data: assignments,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  static async getWoredaComplaintOfficerAssignments(req, res) {
+    try {
+      const subCityId = req.user.subCityId;
+      const { id } = req.params;
+      const assignments = await SubcityAdminService.getWoredaComplaintOfficerAssignments(
+        id,
+        subCityId
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: assignments,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  static async assignWoredaComplaintOfficer(req, res) {
+    try {
+      const subCityId = req.user.subCityId;
+      const adminId = req.user.id;
+      const { id } = req.params;
+      const assignments = await SubcityAdminService.assignWoredaComplaintOfficer(
+        id,
+        subCityId,
+        adminId,
+        req.body?.woredaIds
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Woreda complaint officer assignments updated successfully',
+        data: assignments,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
   // CREATE FIELD OFFICER
   static async createFieldOfficer(req, res) {
     try {
@@ -360,7 +452,25 @@ class SubcityAdminController {
     try {
       const subCityId = req.user.subCityId;
       const createdById = req.user.id;
-      const result = await SubcityAdminService.createAnnouncement(req.body, createdById, subCityId);
+      const role = String(req.user?.role || '').toUpperCase();
+      const isWoredaRole = role === 'WOREDA_ADMINS' || role === 'WOREDA_ADMIN';
+
+      const payload = isWoredaRole
+        ? {
+            ...req.body,
+            targetGroup: 'WOREDA_USERS',
+            targetWoredaIds: req.user?.woredaId ? [req.user.woredaId] : [],
+          }
+        : req.body;
+
+      if (isWoredaRole && !req.user?.woredaId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Unable to detect your woreda assignment',
+        });
+      }
+
+      const result = await SubcityAdminService.createAnnouncement(payload, createdById, subCityId);
 
       return res.status(201).json(result);
     } catch (error) {

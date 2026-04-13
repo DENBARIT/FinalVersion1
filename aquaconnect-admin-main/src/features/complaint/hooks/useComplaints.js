@@ -31,6 +31,8 @@ export function useComplaints({
         woredaId: scopeWoredaId,
       });
       setComplaints(Array.isArray(rows) ? rows : []);
+    } catch (_error) {
+      setComplaints([]);
     } finally {
       setLoading(false);
     }
@@ -90,6 +92,7 @@ export function useComplaints({
     updateTarget,
     setUpdateTarget,
     updateStatus,
+    reloadComplaints: loadComplaints,
     totalCount: filtered.length,
     allComplaints: complaints,
     STATUSES,

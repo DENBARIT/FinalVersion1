@@ -9,6 +9,7 @@ import {
   sendOcrWindowOpenedNotice,
   sendOcrWindowReminderNotice,
   sendOcrWindowClosedNotice,
+  sendEmail,
 } from '../../config/email.js';
 import { formatDualCalendarDate } from '../../utils/ethiopianCalendar.js';
 
@@ -44,11 +45,37 @@ const OFFICER_UI_TO_ROLE = {
   DRIVER: 'FIELD_OFFICER',
   EXCAVATION_CREW: 'FIELD_OFFICER',
   LEAK_DETECTION_TEAM: 'FIELD_OFFICER',
+  MANUAL_METER_READER: 'FIELD_OFFICER',
+  PLUMBER: 'FIELD_OFFICER',
+  MAINTENANCE: 'FIELD_OFFICER',
+  INSPECTOR: 'FIELD_OFFICER',
+};
+
+const OFFICER_UI_TO_DB_FIELD_TYPE = {
+  INSTALLER_METER_ASSIGNMENT: 'MANUAL_METER_READER',
+  TECHNICIAN: 'TECHNICIAN',
+  PIPELINE_REPAIR: 'MAINTENANCE',
+  DRIVER: 'INSPECTOR',
+  EXCAVATION_CREW: 'PLUMBER',
+  LEAK_DETECTION_TEAM: 'MAINTENANCE',
+  MANUAL_METER_READER: 'MANUAL_METER_READER',
+  PLUMBER: 'PLUMBER',
+  MAINTENANCE: 'MAINTENANCE',
+  INSPECTOR: 'INSPECTOR',
+};
+
+const DB_FIELD_TYPE_TO_UI = {
+  MANUAL_METER_READER: 'INSTALLER_METER_ASSIGNMENT',
+  PLUMBER: 'EXCAVATION_CREW',
+  TECHNICIAN: 'TECHNICIAN',
+  MAINTENANCE: 'LEAK_DETECTION_TEAM',
+  INSPECTOR: 'DRIVER',
 };
 
 const OFFICER_ROLE_TO_UI = {
   WOREDA_BILLING_OFFICER: 'BILLING_OFFICER',
   WOREDA_COMPLAINT_OFFICER: 'COMPLAINT_OFFICER',
+  FIELD_OFFICER: 'TECHNICIAN',
 };
 
 const ADMIN_ROLES = new Set(['SUBCITY_ADMIN', 'WOREDA_ADMINS']);
@@ -283,7 +310,62 @@ const toComplaintView = (complaint) => ({
         fieldOfficerType: complaint.assignedTo.fieldOfficerType,
       }
     : null,
+  assignedFieldOfficer: complaint.assignedFieldOfficer
+    ? {
+        id: complaint.assignedFieldOfficer.id,
+        fullName: complaint.assignedFieldOfficer.fullName,
+        email: complaint.assignedFieldOfficer.email,
+        fieldOfficerType: complaint.assignedFieldOfficer.fieldOfficerType,
+      }
+    : null,
 });
+
+const formatDateForEmail = (value) => {
+  if (!value) return 'Unknown date';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown date';
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
+const buildProgressEmail = ({ complaint, updatedByName }) => {
+  const complaintSentDate = formatDateForEmail(complaint.createdAt);
+  const subject = `AquaConnect Complaint Update: ${
+    toPlainText(complaint.title) || 'Your Complaint'
+  }`;
+
+  const text = `We have received the stated complaint. Thanks for that.\n\nComplaint submitted date: ${complaintSentDate}\nCurrent status: In Progress\n\nWe are in progress to solve the problem.\n\nUpdated by: ${
+    updatedByName || 'Woreda Complaint Team'
+  }`;
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; background: #eef3f7; padding: 24px;">
+      <div style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #d7e1ea; border-radius: 14px; overflow: hidden; box-shadow: 0 8px 24px rgba(6, 32, 62, 0.12);">
+        <div style="height: 6px; background: linear-gradient(90deg, #1D9E75, #2e86de, #1D9E75);"></div>
+        <div style="padding: 22px 24px 16px 24px; border-bottom: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; letter-spacing: 1.6px; color: #1D9E75; font-weight: 800;">AQUACONNECT</p>
+          <h2 style="margin: 8px 0 0 0; color: #17324d; font-size: 22px; line-height: 1.3;">Complaint Status: In Progress</h2>
+        </div>
+        <div style="padding: 20px 24px 24px 24px;">
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">We have received the stated complaint, thanks for that.</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Complaint submitted date:</strong> ${complaintSentDate}</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">We are in progress to solve the problem.</p>
+          <p style="margin: 0; color: #5c6d7f; font-size: 12px;">Updated by: ${
+            updatedByName || 'Woreda Complaint Team'
+          }</p>
+        </div>
+        <div style="padding: 14px 24px; border-top: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; color: #7a8796;">This email was sent by AquaConnect. Please do not reply directly to this message.</p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return { subject, text, html };
+};
 
 const toNumber = (value) => {
   if (typeof value === 'number') return value;
@@ -583,7 +665,10 @@ const toOfficerView = (user) => ({
   phoneE164: user.phoneE164,
   nationalId: user.nationalId,
   role: user.role,
-  fieldOfficerType: user.fieldOfficerType || OFFICER_ROLE_TO_UI[user.role] || 'BILLING_OFFICER',
+  fieldOfficerType:
+    user.role === 'FIELD_OFFICER'
+      ? DB_FIELD_TYPE_TO_UI[user.fieldOfficerType] || user.fieldOfficerType || 'TECHNICIAN'
+      : OFFICER_ROLE_TO_UI[user.role] || 'BILLING_OFFICER',
   status: user.status,
   woreda: user.woreda
     ? {
@@ -1142,6 +1227,14 @@ class SuperAdminService {
             fieldOfficerType: true,
           },
         },
+        assignedFieldOfficer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            fieldOfficerType: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -1151,10 +1244,24 @@ class SuperAdminService {
     return complaints.map(toComplaintView);
   }
 
-  static async updateComplaintStatus(id, status) {
+  static async updateComplaintStatus(id, status, actor = null) {
     const complaint = await prisma.complaint.findUnique({
       where: { id },
-      select: { id: true, status: true, deletedAt: true },
+      select: {
+        id: true,
+        status: true,
+        deletedAt: true,
+        createdAt: true,
+        title: true,
+        customerId: true,
+        customer: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+          },
+        },
+      },
     });
 
     if (!complaint || complaint.deletedAt) {
@@ -1167,7 +1274,12 @@ class SuperAdminService {
       where: { id },
       data: {
         status: dbStatus,
-        ...(dbStatus === 'RESOLVED' ? { resolvedAt: new Date() } : {}),
+        ...(dbStatus === 'RESOLVED'
+          ? {
+              resolvedAt: new Date(),
+              ...(actor?.id ? { resolvedById: actor.id } : {}),
+            }
+          : {}),
       },
       include: {
         subCity: {
@@ -1198,10 +1310,276 @@ class SuperAdminService {
             fieldOfficerType: true,
           },
         },
+        assignedFieldOfficer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            fieldOfficerType: true,
+          },
+        },
+      },
+    });
+
+    if (dbStatus === 'IN_PROGRESS' && complaint.status !== 'IN_PROGRESS') {
+      const customerEmail = String(complaint.customer?.email || '').trim();
+      const updatedByName = actor?.fullName || actor?.email || 'Woreda Complaint Team';
+
+      if (customerEmail) {
+        const { subject, text, html } = buildProgressEmail({
+          complaint,
+          updatedByName,
+        });
+
+        await sendEmail(customerEmail, subject, text, html);
+      }
+
+      if (complaint.customerId) {
+        await prisma.notification.create({
+          data: {
+            userId: complaint.customerId,
+            type: 'COMPLAINT_UPDATE',
+            title: {
+              en: 'Complaint update: In Progress',
+              am: 'የቅሬታ ማሻሻያ: በሂደት ላይ',
+            },
+            message: {
+              en: `We have received your complaint submitted on ${formatDateForEmail(
+                complaint.createdAt
+              )}, and we are in progress to solve the problem.`,
+              am: 'ቅሬታዎን ተቀብለናል፣ እና ችግኙን ለመፍታት በሂደት ላይ ነን።',
+            },
+            data: {
+              complaintId: complaint.id,
+              status: 'IN_PROGRESS',
+            },
+            isSent: false,
+            sentVia: ['IN_APP'],
+          },
+        });
+      }
+    }
+
+    return toComplaintView(updated);
+  }
+
+  static async assignComplaintFieldOfficer(complaintId, fieldOfficerId, actor = null) {
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      select: {
+        id: true,
+        deletedAt: true,
+        woredaId: true,
+      },
+    });
+
+    if (!complaint || complaint.deletedAt) {
+      throw new Error('Complaint not found');
+    }
+
+    const officer = await prisma.user.findUnique({
+      where: { id: fieldOfficerId },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+        woredaId: true,
+      },
+    });
+
+    if (
+      !officer ||
+      officer.deletedAt ||
+      officer.status !== 'ACTIVE' ||
+      officer.role !== 'FIELD_OFFICER'
+    ) {
+      throw new Error('Field officer not found or inactive');
+    }
+
+    if (complaint.woredaId && officer.woredaId !== complaint.woredaId) {
+      throw new Error('Selected officer does not belong to this woreda');
+    }
+
+    const updated = await prisma.complaint.update({
+      where: { id: complaintId },
+      data: {
+        assignedFieldOfficerId: officer.id,
+        ...(actor?.id ? { escalatedById: actor.id } : {}),
+      },
+      include: {
+        subCity: { select: { id: true, name: true } },
+        woreda: { select: { id: true, name: true } },
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phoneE164: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            fieldOfficerType: true,
+          },
+        },
+        assignedFieldOfficer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            fieldOfficerType: true,
+          },
+        },
       },
     });
 
     return toComplaintView(updated);
+  }
+
+  static async escalateComplaint(complaintId, reason = '', actor = null) {
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      select: {
+        id: true,
+        deletedAt: true,
+        subCityId: true,
+      },
+    });
+
+    if (!complaint || complaint.deletedAt) {
+      throw new Error('Complaint not found');
+    }
+
+    const subcityAssignment = await prisma.complaintOfficerAssignment.findFirst({
+      where: {
+        subCityId: complaint.subCityId,
+        isActive: true,
+        OR: [{ woredaId: null }, { isSubCityLevel: true }],
+        officer: {
+          role: 'SUBCITY_COMPLAINT_OFFICER',
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        officerId: true,
+      },
+    });
+
+    const updated = await prisma.complaint.update({
+      where: { id: complaintId },
+      data: {
+        status: 'ESCALATED',
+        escalatedAt: new Date(),
+        escalationReason: String(reason || '').trim() || 'Escalated by woreda complaint officer',
+        ...(actor?.id ? { escalatedById: actor.id } : {}),
+        ...(subcityAssignment?.officerId ? { assignedToId: subcityAssignment.officerId } : {}),
+      },
+      include: {
+        subCity: { select: { id: true, name: true } },
+        woreda: { select: { id: true, name: true } },
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phoneE164: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            fieldOfficerType: true,
+          },
+        },
+        assignedFieldOfficer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            fieldOfficerType: true,
+          },
+        },
+      },
+    });
+
+    return toComplaintView(updated);
+  }
+
+  static async contactComplaintCustomer(complaintId, payload = {}, actor = null) {
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      select: {
+        id: true,
+        deletedAt: true,
+        customerId: true,
+        customer: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    if (!complaint || complaint.deletedAt || !complaint.customerId) {
+      throw new Error('Complaint or customer not found');
+    }
+
+    const subject = String(payload.subject || '').trim() || 'AquaConnect Complaint Message';
+    const message = String(payload.message || '').trim();
+    const sendEmailFlag = payload.sendEmail !== false;
+    const sendInAppFlag = payload.sendInApp !== false;
+
+    if (!message) {
+      throw new Error('Message is required');
+    }
+
+    if (sendEmailFlag) {
+      const targetEmail = String(complaint.customer?.email || '').trim();
+      if (!targetEmail) {
+        throw new Error('Customer email is not available');
+      }
+      await sendEmail(targetEmail, subject, message, `<p>${message.replace(/\n/g, '<br/>')}</p>`);
+    }
+
+    if (sendInAppFlag) {
+      await prisma.notification.create({
+        data: {
+          userId: complaint.customerId,
+          type: 'COMPLAINT_UPDATE',
+          title: {
+            en: subject,
+            am: subject,
+          },
+          message: {
+            en: message,
+            am: message,
+          },
+          data: {
+            complaintId: complaint.id,
+            sentById: actor?.id || null,
+          },
+          isSent: false,
+          sentVia: ['IN_APP'],
+        },
+      });
+    }
+
+    return {
+      id: complaint.id,
+      customerId: complaint.customerId,
+      sentEmail: Boolean(sendEmailFlag),
+      sentInApp: Boolean(sendInAppFlag),
+    };
   }
 
   static async getSchedules({ subCityId, woredaId, day }) {
@@ -1683,7 +2061,7 @@ class SuperAdminService {
     return rows.map(toOfficerView);
   }
 
-  static async createWoredaFieldOfficer(data) {
+  static async createWoredaFieldOfficer(data, assignedByUserId = null) {
     if (!OFFICER_UI_TYPES.has(data.fieldOfficerType)) {
       throw new Error('Invalid field officer type');
     }
@@ -1692,6 +2070,8 @@ class SuperAdminService {
     if (!role) {
       throw new Error('Invalid field officer type');
     }
+
+    const normalizedFieldOfficerType = OFFICER_UI_TO_DB_FIELD_TYPE[data.fieldOfficerType] || null;
 
     if (!data.woredaId) {
       throw new Error('woredaId is required');
@@ -1708,6 +2088,13 @@ class SuperAdminService {
 
     const passwordHash = await hashPassword(data.password);
 
+    const creator = assignedByUserId
+      ? await prisma.user.findUnique({
+          where: { id: assignedByUserId },
+          select: { fullName: true, email: true, phoneE164: true, nationalId: true },
+        })
+      : null;
+
     const created = await prisma.user.create({
       data: {
         fullName: data.fullName,
@@ -1716,7 +2103,7 @@ class SuperAdminService {
         nationalId: data.nationalId,
         passwordHash,
         role,
-        fieldOfficerType: data.fieldOfficerType,
+        fieldOfficerType: role === 'FIELD_OFFICER' ? normalizedFieldOfficerType : null,
         status: 'ACTIVE',
         subCityId: woreda.subCityId,
         woredaId: woreda.id,
@@ -1736,6 +2123,32 @@ class SuperAdminService {
         },
       },
     });
+
+    if (role === 'WOREDA_BILLING_OFFICER' || role === 'WOREDA_COMPLAINT_OFFICER') {
+      const normalizedEmail = String(created.email || '')
+        .trim()
+        .toLowerCase();
+      try {
+        await sendAdminVerificationOtp(normalizedEmail, {
+          otp: 'N/A',
+          role,
+          fullName: created.fullName,
+          email: created.email,
+          phoneE164: created.phoneE164,
+          nationalId: created.nationalId,
+          password: data.password,
+          assignedByName: creator?.fullName || 'AquaConnect Super Admin',
+          assignedByEmail: creator?.email || 'system@aquaconnect.local',
+          assignedByPhone: creator?.phoneE164 || 'Not available',
+          assignedByNationalId: creator?.nationalId || 'Not available',
+          assignedAt: new Date().toISOString(),
+          assignedSubCity: created.subCity?.name || 'Not assigned',
+          assignedWoreda: created.woreda?.name || 'Not assigned',
+        });
+      } catch (error) {
+        console.error('Failed to send woreda officer verification email:', error?.message || error);
+      }
+    }
 
     return toOfficerView(created);
   }
@@ -1759,6 +2172,9 @@ class SuperAdminService {
     }
 
     const role = data.fieldOfficerType ? OFFICER_UI_TO_ROLE[data.fieldOfficerType] : existing.role;
+    const normalizedFieldOfficerType = data.fieldOfficerType
+      ? OFFICER_UI_TO_DB_FIELD_TYPE[data.fieldOfficerType]
+      : undefined;
 
     const updated = await prisma.user.update({
       where: { id },
@@ -1769,7 +2185,12 @@ class SuperAdminService {
         ...(data.nationalId ? { nationalId: data.nationalId } : {}),
         ...(data.status ? { status: data.status } : {}),
         ...(role ? { role } : {}),
-        ...(data.fieldOfficerType ? { fieldOfficerType: data.fieldOfficerType } : {}),
+        ...(data.fieldOfficerType
+          ? {
+              fieldOfficerType:
+                role === 'FIELD_OFFICER' ? normalizedFieldOfficerType || null : null,
+            }
+          : {}),
       },
       include: {
         woreda: {

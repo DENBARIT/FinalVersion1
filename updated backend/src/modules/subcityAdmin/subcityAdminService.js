@@ -18,6 +18,8 @@ const normalizeWoredaIds = (value) => {
   return single ? [single] : [];
 };
 
+const toUniqueIds = (value) => [...new Set(normalizeWoredaIds(value))];
+
 const toAnnouncementView = (announcement) => {
   const titleText = announcement?.title?.en || announcement?.title?.am || '';
   const bodyText = announcement?.message?.en || announcement?.message?.am || '';
@@ -127,7 +129,7 @@ class SubcityAdminService {
       adminId
         ? prisma.user.findUnique({
             where: { id: adminId },
-            select: { fullName: true, email: true },
+            select: { fullName: true, email: true, phoneE164: true, nationalId: true },
           })
         : null,
       prisma.subCity.findUnique({
@@ -232,9 +234,11 @@ class SubcityAdminService {
         phoneE164: officer.phoneE164,
         nationalId: officer.nationalId,
         password: data.password,
-        createdByName: creator?.fullName || 'Subcity Admin',
-        createdByEmail: creator?.email || 'Not available',
-        createdAt: officer.createdAt,
+        assignedByName: creator?.fullName || 'Subcity Admin',
+        assignedByEmail: creator?.email || 'Not available',
+        assignedByPhone: creator?.phoneE164 || 'Not available',
+        assignedByNationalId: creator?.nationalId || 'Not available',
+        assignedAt: new Date().toISOString(),
         assignedSubCity: subCity?.name || 'Not assigned',
         assignedWoreda: 'Subcity Level',
       });
@@ -258,7 +262,7 @@ class SubcityAdminService {
       adminId
         ? prisma.user.findUnique({
             where: { id: adminId },
-            select: { fullName: true, email: true },
+            select: { fullName: true, email: true, phoneE164: true, nationalId: true },
           })
         : null,
       prisma.subCity.findUnique({
@@ -352,9 +356,11 @@ class SubcityAdminService {
       phoneE164: officer.phoneE164,
       nationalId: officer.nationalId,
       password: data.password,
-      createdByName: creator?.fullName || 'Subcity Admin',
-      createdByEmail: creator?.email || 'Not available',
-      createdAt: officer.createdAt,
+      assignedByName: creator?.fullName || 'Subcity Admin',
+      assignedByEmail: creator?.email || 'Not available',
+      assignedByPhone: creator?.phoneE164 || 'Not available',
+      assignedByNationalId: creator?.nationalId || 'Not available',
+      assignedAt: new Date().toISOString(),
       assignedSubCity: subCity?.name || 'Not assigned',
       assignedWoreda: 'Subcity Level',
     });
@@ -613,6 +619,203 @@ class SubcityAdminService {
 
     return { success: true };
   }
+
+  static async getWoredaBillingOfficerAssignments(officerId, subCityId) {
+    const officer = await prisma.user.findFirst({
+      where: {
+        id: officerId,
+        role: 'WOREDA_BILLING_OFFICER',
+        subCityId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!officer) {
+      throw new Error('Woreda billing officer not found');
+    }
+
+    return prisma.billingOfficerAssignment.findMany({
+      where: {
+        officerId,
+        subCityId,
+        isSubCityLevel: false,
+        isActive: true,
+        woredaId: { not: null },
+      },
+      select: {
+        id: true,
+        woredaId: true,
+        woreda: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  static async assignWoredaBillingOfficer(officerId, subCityId, adminId, woredaIds) {
+    const normalizedWoredaIds = toUniqueIds(woredaIds);
+
+    const officer = await prisma.user.findFirst({
+      where: {
+        id: officerId,
+        role: 'WOREDA_BILLING_OFFICER',
+        subCityId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!officer) {
+      throw new Error('Woreda billing officer not found');
+    }
+
+    if (normalizedWoredaIds.length) {
+      const woredas = await prisma.woreda.findMany({
+        where: {
+          id: { in: normalizedWoredaIds },
+          subCityId,
+        },
+        select: { id: true },
+      });
+
+      if (woredas.length !== normalizedWoredaIds.length) {
+        throw new Error('One or more selected woredas are invalid for this subcity');
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.billingOfficerAssignment.deleteMany({
+        where: {
+          officerId,
+          subCityId,
+          isSubCityLevel: false,
+          woredaId: { not: null },
+        },
+      });
+
+      if (normalizedWoredaIds.length) {
+        await tx.billingOfficerAssignment.createMany({
+          data: normalizedWoredaIds.map((woredaId) => ({
+            subCityId,
+            officerId,
+            woredaId,
+            isSubCityLevel: false,
+            isActive: true,
+            assignedById: adminId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    });
+
+    return this.getWoredaBillingOfficerAssignments(officerId, subCityId);
+  }
+
+  static async getWoredaComplaintOfficerAssignments(officerId, subCityId) {
+    const officer = await prisma.user.findFirst({
+      where: {
+        id: officerId,
+        role: 'WOREDA_COMPLAINT_OFFICER',
+        subCityId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!officer) {
+      throw new Error('Woreda complaint officer not found');
+    }
+
+    return prisma.complaintOfficerAssignment.findMany({
+      where: {
+        officerId,
+        subCityId,
+        isSubCityLevel: false,
+        isActive: true,
+        woredaId: { not: null },
+      },
+      select: {
+        id: true,
+        woredaId: true,
+        woreda: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  static async assignWoredaComplaintOfficer(officerId, subCityId, adminId, woredaIds) {
+    const normalizedWoredaIds = toUniqueIds(woredaIds);
+
+    const officer = await prisma.user.findFirst({
+      where: {
+        id: officerId,
+        role: 'WOREDA_COMPLAINT_OFFICER',
+        subCityId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!officer) {
+      throw new Error('Woreda complaint officer not found');
+    }
+
+    if (normalizedWoredaIds.length) {
+      const woredas = await prisma.woreda.findMany({
+        where: {
+          id: { in: normalizedWoredaIds },
+          subCityId,
+        },
+        select: { id: true },
+      });
+
+      if (woredas.length !== normalizedWoredaIds.length) {
+        throw new Error('One or more selected woredas are invalid for this subcity');
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.complaintOfficerAssignment.deleteMany({
+        where: {
+          officerId,
+          subCityId,
+          isSubCityLevel: false,
+          woredaId: { not: null },
+        },
+      });
+
+      if (normalizedWoredaIds.length) {
+        await tx.complaintOfficerAssignment.createMany({
+          data: normalizedWoredaIds.map((woredaId) => ({
+            subCityId,
+            officerId,
+            woredaId,
+            isSubCityLevel: false,
+            isActive: true,
+            assignedById: adminId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    });
+
+    return this.getWoredaComplaintOfficerAssignments(officerId, subCityId);
+  }
+
   // create field officer
   static async createFieldOfficer(data, subCityId, adminId) {
     const hashed = await hashPassword(data.password);

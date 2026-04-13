@@ -3,12 +3,93 @@ const API_BASE_URL =
 const REQUEST_TIMEOUT_MS = 12000;
 const GET_CACHE_TTL_MS = 15000;
 const responseCache = new Map();
+let refreshTokenPromise = null;
 
 function getAccessToken() {
   if (typeof window === "undefined") {
     return "";
   }
   return localStorage.getItem("accessToken") || "";
+}
+
+function getRefreshToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return localStorage.getItem("refreshToken") || "";
+}
+
+function clearStoredTokens() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  localStorage.removeItem("accessToken");
+  localStorage.removeItem("refreshToken");
+}
+
+function storeTokens({ accessToken = "", refreshToken = "" } = {}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (accessToken) {
+    localStorage.setItem("accessToken", accessToken);
+  }
+
+  if (refreshToken) {
+    localStorage.setItem("refreshToken", refreshToken);
+  }
+}
+
+async function refreshAccessToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    return "";
+  }
+
+  if (refreshTokenPromise) {
+    return refreshTokenPromise;
+  }
+
+  refreshTokenPromise = (async () => {
+    const response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (_error) {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      throw new Error(payload?.message || "Unable to refresh session.");
+    }
+
+    const access = payload?.accessToken || payload?.data?.accessToken || "";
+    const nextRefresh =
+      payload?.refreshToken || payload?.data?.refreshToken || "";
+
+    if (!access) {
+      throw new Error("Session refresh did not return a valid access token.");
+    }
+
+    storeTokens({ accessToken: access, refreshToken: nextRefresh });
+    return access;
+  })().finally(() => {
+    refreshTokenPromise = null;
+  });
+
+  return refreshTokenPromise;
 }
 
 function buildUrl(path, query) {
@@ -35,6 +116,7 @@ export async function apiRequest(path, options = {}) {
     token,
     timeoutMs = REQUEST_TIMEOUT_MS,
     retries,
+    skipAuthRetry = false,
   } = options;
   const normalizedMethod = String(method).toUpperCase();
 
@@ -122,6 +204,28 @@ export async function apiRequest(path, options = {}) {
 
   if (!response.ok) {
     const rawMessage = payload?.message || payload?.error || "Request failed";
+
+    if (
+      response.status === 401 &&
+      useAuth &&
+      !token &&
+      !skipAuthRetry &&
+      /invalid token|unauthorized|jwt|expired/i.test(String(rawMessage))
+    ) {
+      try {
+        const refreshedAccessToken = await refreshAccessToken();
+        if (refreshedAccessToken) {
+          return apiRequest(path, {
+            ...options,
+            token: refreshedAccessToken,
+            skipAuthRetry: true,
+          });
+        }
+      } catch (_refreshError) {
+        clearStoredTokens();
+      }
+    }
+
     const isLikelyDbConnectivityIssue =
       response.status >= 500 &&
       /database|db|connect|connection|timeout|econn|network/i.test(

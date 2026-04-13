@@ -377,30 +377,55 @@ class _PostSignInPageState extends State<PostSignInPage>
     final composedText =
         '${_t('Complaint Category', 'የቅሬታ ምድብ')}: ${_categoryLabel(_selectedComplaintCategory)}\n${_t('Title', 'ርዕስ')}: $title\n$locationLine\n\n${_t('Details', 'ዝርዝር')}:\n$body';
 
-    await Clipboard.setData(ClipboardData(text: composedText));
+    try {
+      await ComplaintService.submitComplaint(
+        title: title,
+        description: body,
+        category: _selectedComplaintCategory,
+        location: locationLine,
+      );
 
-    if (!mounted) {
-      return;
-    }
+      await Clipboard.setData(ClipboardData(text: composedText));
 
-    setState(() {
-      _isSubmittingComplaint = false;
-      _complaintTitleController.clear();
-      _complaintBodyController.clear();
-      _selectedComplaintCategory = 'OTHER';
-    });
+      if (!mounted) {
+        return;
+      }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          _t(
-            'Complaint submitted. A formatted copy has been copied for sharing.',
-            'ቅሬታዎ ተልኳል። ለመጋራት ቅጂ ተቀድቷል።',
+      setState(() {
+        _complaintTitleController.clear();
+        _complaintBodyController.clear();
+        _selectedComplaintCategory = 'OTHER';
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            _t(
+              'Complaint submitted and sent to your admin team. A formatted copy has been copied for sharing.',
+              'ቅሬታዎ ተልኳል እና ለአስተዳደር ቡድን ተላልፏል። ለመጋራት ቅጂ ተቀድቷል።',
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmittingComplaint = false;
+        });
+      }
+    }
   }
 
   Future<void> _copyComplaintDraft(

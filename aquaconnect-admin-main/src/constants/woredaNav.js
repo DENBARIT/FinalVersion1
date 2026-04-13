@@ -1,7 +1,14 @@
 export const WOREDA_NAV = [
   {
     section: "Main",
-    items: [{ label: "Overview", icon: "⬛", href: "/woreda" }],
+    items: [
+      { label: "Overview", icon: "⬛", href: "/woreda" },
+      {
+        label: "Change Password",
+        icon: "🔐",
+        href: "/woreda/change-password",
+      },
+    ],
   },
   {
     section: "Management",
@@ -9,7 +16,7 @@ export const WOREDA_NAV = [
       { label: "Field Officers", icon: "👷", href: "/woreda/officers" },
       {
         label: "Billing Officers",
-        
+
         icon: "💳",
         href: "/woreda/officers/billing",
       },
@@ -55,6 +62,11 @@ export const WOREDA_PAGE_META = {
   "/woreda": {
     title: "Overview",
     sub: "Welcome back, Woreda Admin",
+    action: "",
+  },
+  "/woreda/change-password": {
+    title: "Change Password",
+    sub: "Update your account password securely",
     action: "",
   },
   "/woreda/officers": {

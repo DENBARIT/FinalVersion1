@@ -242,7 +242,50 @@ class SuperAdminController {
 
   static async updateComplaintStatus(req, res) {
     try {
-      const result = await SuperAdminService.updateComplaintStatus(req.params.id, req.body?.status);
+      const result = await SuperAdminService.updateComplaintStatus(
+        req.params.id,
+        req.body?.status,
+        req.user || null
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async assignComplaintFieldOfficer(req, res) {
+    try {
+      const result = await SuperAdminService.assignComplaintFieldOfficer(
+        req.params.id,
+        req.body?.fieldOfficerId,
+        req.user || null
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async escalateComplaint(req, res) {
+    try {
+      const result = await SuperAdminService.escalateComplaint(
+        req.params.id,
+        req.body?.reason,
+        req.user || null
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async contactComplaintCustomer(req, res) {
+    try {
+      const result = await SuperAdminService.contactComplaintCustomer(
+        req.params.id,
+        req.body || {},
+        req.user || null
+      );
       res.json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -395,7 +438,10 @@ class SuperAdminController {
 
   static async createWoredaFieldOfficer(req, res) {
     try {
-      const result = await SuperAdminService.createWoredaFieldOfficer(req.body);
+      const result = await SuperAdminService.createWoredaFieldOfficer(
+        req.body,
+        req.user?.id || null
+      );
       res.status(201).json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });

@@ -133,6 +133,28 @@ class AuthController {
     }
   }
 
+  async createComplaint(req, res) {
+    try {
+      const userId = req.user.id;
+      const complaint = await AuthService.createComplaint(userId, req.body);
+
+      const assignmentMessage =
+        complaint.assignmentScope === 'WOREDA'
+          ? 'Complaint submitted and assigned to your woreda complaint officer.'
+          : complaint.assignmentScope === 'SUBCITY'
+          ? 'Complaint submitted and assigned to a subcity complaint officer.'
+          : 'Complaint submitted successfully. No active complaint officer assignment was found yet.';
+
+      return res.status(201).json({
+        success: true,
+        message: assignmentMessage,
+        data: complaint,
+      });
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
   async changePassword(req, res) {
     try {
       const userId = req.user.id;

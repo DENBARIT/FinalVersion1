@@ -15,6 +15,7 @@ router.post('/refresh-token', AuthController.getNewToken);
 router.post('/social-login', AuthController.socialLogin);
 
 router.get('/me', authenticate, AuthController.getMe);
+router.post('/complaints', authenticate, AuthController.createComplaint);
 router.get('/ocr-window-status', authenticate, AuthController.getOcrWindowStatus);
 router.get('/announcements', authenticate, AuthController.getAnnouncements);
 router.get('/schedule-notifications', authenticate, AuthController.getScheduleNotifications);

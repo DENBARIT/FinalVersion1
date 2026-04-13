@@ -1,12 +1,31 @@
 export const SUBCITY_NAV = [
   {
     section: "Main",
-    items: [{ label: "Overview", icon: "⬛", href: "/subcity" }],
+    items: [
+      { label: "Overview", icon: "⬛", href: "/subcity" },
+      {
+        label: "Change Password",
+        icon: "🔐",
+        href: "/subcity/change-password",
+      },
+    ],
   },
   {
     section: "Management",
     items: [
       { label: "Woreda Admins", icon: "🏛️", href: "/subcity/woreda-admins" },
+      { label: "Woreda", icon: "", kind: "group" },
+      {
+        label: "Complaint Officers",
+        icon: "🛠️",
+        href: "/subcity/woreda/complaint-officers",
+      },
+      {
+        label: "Billing Officers",
+        icon: "🧾",
+        href: "/subcity/woreda/billing-officers",
+      },
+      { label: "Subcity", icon: "", kind: "group" },
       {
         label: "Billing Officers",
         icon: "🧾",
@@ -54,19 +73,34 @@ export const SUBCITY_PAGE_META = {
     sub: "Welcome back, Subcity Admin",
     action: "",
   },
+  "/subcity/change-password": {
+    title: "Change Password",
+    sub: "Update your account password securely",
+    action: "",
+  },
   "/subcity/woreda-admins": {
     title: "Woreda Admins",
     sub: "Manage woreda administrators",
     action: "+ Add Woreda Admin",
   },
+  "/subcity/woreda/billing-officers": {
+    title: "Woreda Billing Officers",
+    sub: "Manage billing officers assigned to woredas in your subcity",
+    action: "",
+  },
+  "/subcity/woreda/complaint-officers": {
+    title: "Woreda Complaint Officers",
+    sub: "Manage complaint officers assigned to woredas in your subcity",
+    action: "",
+  },
   "/subcity/billing-officers": {
-    title: "Billing Officers",
-    sub: "View billing officers in your subcity",
+    title: "Subcity Billing Officers",
+    sub: "View billing officers assigned at subcity level",
     action: "+ Add Billing Officer",
   },
   "/subcity/complaint-officers": {
-    title: "Complaint Officers",
-    sub: "View complaint officers in your subcity",
+    title: "Subcity Complaint Officers",
+    sub: "View complaint officers assigned at subcity level",
     action: "+ Add Complaint Officer",
   },
   "/subcity/schedules": {

@@ -1,7 +1,14 @@
 export const BILLING_NAV = [
   {
     section: "Main",
-    items: [{ label: "Overview", icon: "⬛", href: "/billing" }],
+    items: [
+      { label: "Overview", icon: "⬛", href: "/billing" },
+      {
+        label: "Change Password",
+        icon: "🔐",
+        href: "/billing/change-password",
+      },
+    ],
   },
   {
     section: "Announcement",
@@ -31,6 +38,11 @@ export const BILLING_PAGE_META = {
   "/billing": {
     title: "Overview",
     sub: "Welcome back, Billing Officer",
+    action: "",
+  },
+  "/billing/change-password": {
+    title: "Change Password",
+    sub: "Update your account password securely",
     action: "",
   },
   "/billing/announcement": {

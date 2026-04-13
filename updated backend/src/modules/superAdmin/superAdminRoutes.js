@@ -92,9 +92,49 @@ router.get('/field-officers', SuperAdminController.getWoredaFieldOfficers);
 router.post('/field-officers', SuperAdminController.createWoredaFieldOfficer);
 router.put('/field-officers/:id', SuperAdminController.updateWoredaFieldOfficer);
 router.delete('/field-officers/:id', SuperAdminController.deleteWoredaFieldOfficer);
-router.get('/complaints', SuperAdminController.getComplaints);
-router.put('/complaints/:id/status', SuperAdminController.updateComplaintStatus);
-router.patch('/complaints/:id/status', SuperAdminController.updateComplaintStatus);
+router.get(
+  '/complaints',
+  authenticate,
+  authorize(
+    'SUPER_ADMIN',
+    'SUBCITY_ADMIN',
+    'WOREDA_ADMINS',
+    'WOREDA_ADMIN',
+    'WOREDA_COMPLAINT_OFFICER',
+    'SUBCITY_COMPLAINT_OFFICER'
+  ),
+  SuperAdminController.getComplaints
+);
+router.put(
+  '/complaints/:id/status',
+  authenticate,
+  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  SuperAdminController.updateComplaintStatus
+);
+router.patch(
+  '/complaints/:id/status',
+  authenticate,
+  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  SuperAdminController.updateComplaintStatus
+);
+router.patch(
+  '/complaints/:id/assign-field-officer',
+  authenticate,
+  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  SuperAdminController.assignComplaintFieldOfficer
+);
+router.patch(
+  '/complaints/:id/escalate',
+  authenticate,
+  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  SuperAdminController.escalateComplaint
+);
+router.post(
+  '/complaints/:id/contact',
+  authenticate,
+  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  SuperAdminController.contactComplaintCustomer
+);
 
 router.get('/schedules', SuperAdminController.getSchedules);
 router.post('/schedules', SuperAdminController.createSchedule);

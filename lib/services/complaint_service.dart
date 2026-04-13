@@ -85,4 +85,58 @@ class ComplaintService {
       woredaName: woredaName,
     );
   }
+
+  static String _normalizeCategory(String category) {
+    final normalized = category.trim().toUpperCase();
+
+    switch (normalized) {
+      case 'METER':
+        return 'METER_DAMAGE';
+      default:
+        return normalized.isEmpty ? 'OTHER' : normalized;
+    }
+  }
+
+  static Future<Map<String, dynamic>> submitComplaint({
+    required String title,
+    required String description,
+    required String category,
+    String? location,
+  }) async {
+    final token = await _token();
+    if (token.isEmpty) {
+      throw Exception('Missing login token.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/auth/complaints');
+    final response = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'title': title.trim(),
+        'description': description.trim(),
+        'category': _normalizeCategory(category),
+        if ((location ?? '').trim().isNotEmpty) 'location': location!.trim(),
+      }),
+    );
+
+    final decoded = jsonDecode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final message = (decoded is Map<String, dynamic>)
+          ? (decoded['message']?.toString() ?? 'Failed to submit complaint')
+          : 'Failed to submit complaint';
+      throw Exception(message);
+    }
+
+    final data = (decoded is Map<String, dynamic>)
+        ? (decoded['data'] is Map<String, dynamic>
+              ? decoded['data'] as Map<String, dynamic>
+              : decoded)
+        : <String, dynamic>{};
+
+    return data;
+  }
 }
