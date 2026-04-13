@@ -88,6 +88,30 @@ export default function Topbar({ pageMeta = {}, onAction }) {
       }
       return;
     }
+
+    if (meta.action === "+ Add Officer") {
+      if (typeof window !== "undefined") {
+        if (pathname === "/woreda/officers") {
+          window.dispatchEvent(new CustomEvent("woreda:officers-open-create"));
+          return;
+        }
+
+        if (pathname === "/woreda/officers/billing") {
+          window.dispatchEvent(
+            new CustomEvent("woreda:billing-officers-open-create"),
+          );
+          return;
+        }
+
+        if (pathname === "/woreda/officers/complaint") {
+          window.dispatchEvent(
+            new CustomEvent("woreda:complaint-officers-open-create"),
+          );
+          return;
+        }
+      }
+      router.push("/woreda/officers");
+    }
   };
 
   return (

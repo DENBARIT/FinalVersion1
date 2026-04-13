@@ -19,8 +19,11 @@ export function getRedirectPathByRole(role) {
     case "SUBCITY_COMPLAINT_OFFICER":
     case "WOREDA_COMPLAINT_OFFICER":
       return "/complaint";
+    case "FIELD_OFFICER":
+    case "MANUAL_METER_READER":
+      return "/login";
     default:
-      return "/dashboard";
+      return "/login";
   }
 }
 

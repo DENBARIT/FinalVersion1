@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOfficers } from "@/features/woreda/hooks/useOfficers";
 import OfficerTable from "@/features/woreda/components/OfficerTable";
 import OfficerForm from "@/features/woreda/components/OfficerForm";
@@ -17,6 +17,48 @@ export default function ComplaintOfficersPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [actionToast, setActionToast] = useState(null);
+
+  useEffect(() => {
+    const openCreate = () => setCreateOpen(true);
+    window.addEventListener(
+      "woreda:complaint-officers-open-create",
+      openCreate,
+    );
+    return () => {
+      window.removeEventListener(
+        "woreda:complaint-officers-open-create",
+        openCreate,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!actionToast) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setActionToast(null);
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [actionToast]);
+
+  const showToast = (type, text) => {
+    setActionToast({ type, text });
+  };
+
+  const handleValidationToast = (errors) => {
+    const [firstField] = Object.keys(errors || {});
+
+    if (!firstField) {
+      return;
+    }
+
+    const fieldMessage = errors?.[firstField]?.message;
+    showToast("error", fieldMessage || "Please complete the form correctly.");
+  };
 
   const { allOfficers, loading, createOfficer, updateOfficer, deleteOfficer } =
     useOfficers();
@@ -45,25 +87,63 @@ export default function ComplaintOfficersPage() {
   );
 
   const handleCreate = async (data) => {
-    await createOfficer({ ...data, fieldOfficerType: "COMPLAINT_OFFICER" });
-    setCreateOpen(false);
+    try {
+      await createOfficer({ ...data, fieldOfficerType: "COMPLAINT_OFFICER" });
+      setCreateOpen(false);
+      showToast("success", "Complaint officer created successfully.");
+    } catch (error) {
+      showToast(
+        "error",
+        error?.message || "Unable to create complaint officer.",
+      );
+    }
   };
 
   const handleUpdate = async (data) => {
-    await updateOfficer(editTarget.id, {
-      ...data,
-      fieldOfficerType: "COMPLAINT_OFFICER",
-    });
-    setEditTarget(null);
+    try {
+      await updateOfficer(editTarget.id, {
+        ...data,
+        fieldOfficerType: "COMPLAINT_OFFICER",
+      });
+      setEditTarget(null);
+      showToast("success", "Complaint officer updated successfully.");
+    } catch (error) {
+      showToast(
+        "error",
+        error?.message || "Unable to update complaint officer.",
+      );
+    }
   };
 
   const handleDelete = async () => {
-    await deleteOfficer(deleteTarget.id);
-    setDeleteTarget(null);
+    try {
+      await deleteOfficer(deleteTarget.id);
+      setDeleteTarget(null);
+      showToast("success", "Complaint officer deleted successfully.");
+    } catch (error) {
+      showToast(
+        "error",
+        error?.message || "Unable to delete complaint officer.",
+      );
+    }
   };
 
   return (
     <div className="text-[#e8f4f0]">
+      {actionToast && (
+        <div className="fixed top-5 left-1/2 z-3000 -translate-x-1/2">
+          <div
+            className={`rounded-xl border px-4 py-2 text-xs shadow-lg whitespace-nowrap ${
+              actionToast.type === "success"
+                ? "border-[rgba(29,158,117,0.45)] bg-[#0b2a22] text-[#7ce4be]"
+                : "border-[rgba(226,75,74,0.45)] bg-[#2a1211] text-[#ff9c9b]"
+            }`}
+          >
+            {actionToast.text}
+          </div>
+        </div>
+      )}
+
       <div className="bg-[#05141f] border border-[rgba(29,158,117,0.08)] rounded-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(29,158,117,0.08)]">
           <div>
@@ -74,12 +154,6 @@ export default function ComplaintOfficersPage() {
               {complaintOfficers.length} officers found
             </p>
           </div>
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="px-4 py-2 rounded-xl text-xs bg-[#1D9E75] text-[#020f1a] font-medium hover:bg-[#5DCAA5] transition-colors"
-          >
-            + Add Officer
-          </button>
         </div>
 
         <div className="flex items-center gap-3 px-6 py-3 border-b border-[rgba(29,158,117,0.06)]">
@@ -136,6 +210,8 @@ export default function ComplaintOfficersPage() {
           onSubmit={handleCreate}
           loading={loading}
           defaultValues={{ fieldOfficerType: "COMPLAINT_OFFICER" }}
+          strictValidation
+          onValidationError={handleValidationToast}
         />
       </Modal>
 
@@ -148,6 +224,8 @@ export default function ComplaintOfficersPage() {
           onSubmit={handleUpdate}
           defaultValues={editTarget}
           loading={loading}
+          strictValidation
+          onValidationError={handleValidationToast}
         />
       </Modal>
 

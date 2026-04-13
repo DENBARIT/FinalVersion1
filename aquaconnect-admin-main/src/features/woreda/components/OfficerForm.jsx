@@ -1,33 +1,117 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import FormField from '@/components/ui/FormField';
-import Input from '@/components/ui/Input';
-import Select from '@/components/ui/Select';
+import { useEffect, useMemo } from "react";
+import { useForm } from "react-hook-form";
+import FormField from "@/components/ui/FormField";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import {
+  OFFICER_TYPE_OPTIONS,
+  getOfficerTypeSelectLabel,
+} from "@/features/woreda/constants/officerTypes";
 
-export default function OfficerForm({ onSubmit, defaultValues, loading }) {
-  const { register, handleSubmit, reset, formState: { errors } } = useForm();
+const EMPTY_FORM_VALUES = {
+  fullName: "",
+  email: "",
+  phoneNumber: "",
+  nationalId: "",
+  fieldOfficerType: "",
+  password: "",
+};
+
+export default function OfficerForm({
+  onSubmit,
+  defaultValues,
+  loading,
+  typeOptions = OFFICER_TYPE_OPTIONS,
+}) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm({
+    defaultValues: EMPTY_FORM_VALUES,
+  onValidationError,
+  strictValidation = false,
+    shouldUnregister: true,
+  });
 
   useEffect(() => {
-    defaultValues ? reset({
-      fullName: defaultValues.fullName,
-      email: defaultValues.email,
-      phoneNumber: defaultValues.phoneE164,
-      nationalId: defaultValues.nationalId,
-      fieldOfficerType: defaultValues.fieldOfficerType,
-    }) : reset({});
+    const nextValues = defaultValues
+      ? {
+          fullName: defaultValues.fullName ?? "",
+          email: defaultValues.email ?? "",
+    watch,
+          phoneNumber: defaultValues.phoneE164 ?? "",
+          nationalId: defaultValues.nationalId ?? "",
+          fieldOfficerType: defaultValues.fieldOfficerType ?? "",
+          password: "",
+        }
+      : { ...EMPTY_FORM_VALUES };
+  const passwordValue = watch("password", "");
+
+  const passwordStrength = useMemo(() => {
+    if (isEditMode) {
+      return { score: 0, percent: 0, label: "", colorClass: "" };
+    }
+
+    let score = 0;
+    if (passwordValue.length >= 8) score += 1;
+    if (/[A-Z]/.test(passwordValue) && /[a-z]/.test(passwordValue)) score += 1;
+    if (/[0-9]/.test(passwordValue)) score += 1;
+    if (/[!@#$%^&*]/.test(passwordValue)) score += 1;
+
+    const percent = score === 0 ? 0 : Math.round((score / 4) * 100);
+
+    if (score <= 1) {
+      return {
+        score,
+        percent,
+        label: "Weak",
+        colorClass: "bg-[#b83a3a]",
+      };
+    }
+
+    if (score <= 2) {
+      return {
+        score,
+        percent,
+        label: "Fair",
+        colorClass: "bg-[#d88a2b]",
+      };
+    }
+
+    if (score <= 3) {
+      return {
+        score,
+        percent,
+        label: "Good",
+        colorClass: "bg-[#a8cc3a]",
+      };
+    }
+
+    return {
+      score,
+      percent,
+      label: "Strong",
+      colorClass: "bg-[#1D9E75]",
+    };
+  }, [isEditMode, passwordValue]);
+    reset(nextValues);
   }, [defaultValues, reset]);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
       <FormField label="Full name" error={errors.fullName?.message}>
         <Input
-          placeholder="e.g. Dawit Bekele"
+          autoComplete="off"
           error={errors.fullName}
-          {...register('fullName', {
-            required: 'Full name is required.',
-            validate: (v) => v.trim().split(/\s+/).length >= 2 || 'Include first and last name.',
+          {...register("fullName", {
+            required: "Full name is required.",
+            validate: (v) =>
+              v.trim().split(/\s+/).length >= 2 ||
+              "Include first and last name.",
           })}
         />
       </FormField>
@@ -35,33 +119,47 @@ export default function OfficerForm({ onSubmit, defaultValues, loading }) {
       <FormField label="Email address" error={errors.email?.message}>
         <Input
           type="email"
-          placeholder="officer@aquaconnect.com"
+          autoComplete="off"
           error={errors.email}
-          {...register('email', {
-            required: 'Email is required.',
-            pattern: { value: /\S+@\S+\.\S+/, message: 'Enter a valid email.' },
+          {...register("email", {
+            required: "Email is required.",
+            pattern: { value: /\S+@\S+\.\S+/, message: "Enter a valid email." },
           })}
         />
       </FormField>
 
       <FormField label="Phone number" error={errors.phoneNumber?.message}>
         <Input
-          placeholder="+251912345678"
+          autoComplete="off"
           error={errors.phoneNumber}
-          {...register('phoneNumber', {
-            required: 'Phone number is required.',
-            pattern: { value: /^\+2519\d{8}$/, message: 'Must start with +2519 and be 13 digits.' },
+          {...register("phoneNumber", {
+            required: "Phone number is required.",
+            pattern: {
+              value: /^\+2519\d{8}$/,
+            pattern: strictValidation
+              ? {
+                  value: /^[A-Z0-9._%+-]+@gmail\.com$/i,
+                  message: "Email must be a @gmail.com address.",
+                }
+              : {
+                  value: /\S+@\S+\.\S+/,
+                  message: "Enter a valid email.",
+                },
+            },
           })}
         />
       </FormField>
 
       <FormField label="National ID" error={errors.nationalId?.message}>
         <Input
-          placeholder="12 character ID"
+          autoComplete="off"
           error={errors.nationalId}
-          {...register('nationalId', {
-            required: 'National ID is required.',
-            validate: (v) => v.length === 12 || 'Must be exactly 12 characters.',
+          {...register("nationalId", {
+            required: "National ID is required.",
+              value: strictValidation ? /^\+251\d{9}$/ : /^\+2519\d{8}$/,
+              message: strictValidation
+                ? "Phone number must start with +251 and be 13 characters."
+                : "Must start with +2519 and be 13 digits.",
           })}
         />
       </FormField>
@@ -70,16 +168,24 @@ export default function OfficerForm({ onSubmit, defaultValues, loading }) {
         <FormField label="Password" error={errors.password?.message}>
           <Input
             type="password"
-            placeholder="Min 8 chars, uppercase, number, special"
+            autoComplete="new-password"
             error={errors.password}
-            {...register('password', {
-              required: 'Password is required.',
-              minLength: { value: 8, message: 'At least 8 characters.' },
+            {...register("password", {
+            pattern: strictValidation
+              ? {
+                  value: /^\d{12}$/,
+                  message: "National ID must be exactly 12 digits.",
+                }
+              : {
+                  value: /^.{12}$/,
+                  message: "Must be exactly 12 characters.",
+                },
               validate: {
-                upper: (v) => /[A-Z]/.test(v) || 'Must contain uppercase.',
-                lower: (v) => /[a-z]/.test(v) || 'Must contain lowercase.',
-                number: (v) => /[0-9]/.test(v) || 'Must contain a number.',
-                special: (v) => /[!@#$%^&*]/.test(v) || 'Must contain a special character.',
+                upper: (v) => /[A-Z]/.test(v) || "Must contain uppercase.",
+                lower: (v) => /[a-z]/.test(v) || "Must contain lowercase.",
+                number: (v) => /[0-9]/.test(v) || "Must contain a number.",
+                special: (v) =>
+                  /[!@#$%^&*]/.test(v) || "Must contain a special character.",
               },
             })}
           />
@@ -89,11 +195,16 @@ export default function OfficerForm({ onSubmit, defaultValues, loading }) {
       <FormField label="Officer type" error={errors.fieldOfficerType?.message}>
         <Select
           error={errors.fieldOfficerType}
-          {...register('fieldOfficerType', { required: 'Please select an officer type.' })}
+          {...register("fieldOfficerType", {
+            required: "Please select an officer type.",
+          })}
         >
           <option value="">Select type</option>
-          <option value="BILLING_OFFICER">Billing Officer</option>
-          <option value="COMPLAINT_OFFICER">Complaint Officer</option>
+          {typeOptions.map((typeOption) => (
+            <option key={typeOption.value} value={typeOption.value}>
+              {getOfficerTypeSelectLabel(typeOption.value)}
+            </option>
+          ))}
         </Select>
       </FormField>
 
@@ -102,7 +213,11 @@ export default function OfficerForm({ onSubmit, defaultValues, loading }) {
         disabled={loading}
         className="w-full bg-[#1D9E75] text-[#020f1a] font-syne font-bold py-3 rounded-xl hover:bg-[#5DCAA5] transition-all disabled:opacity-60 text-sm mt-2"
       >
-        {loading ? 'Saving...' : defaultValues ? 'Update Officer' : 'Create Officer'}
+        {loading
+          ? "Saving..."
+          : defaultValues
+            ? "Update Officer"
+            : "Create Officer"}
       </button>
     </form>
   );

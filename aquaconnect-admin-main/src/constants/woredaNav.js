@@ -20,6 +20,21 @@ export const WOREDA_NAV = [
     ],
   },
   {
+    section: "Message",
+    items: [
+      {
+        label: "Announcement",
+        icon: "📣",
+        href: "/woreda/messages/announcement",
+      },
+      {
+        label: "Notification",
+        icon: "🔔",
+        href: "/woreda/messages/notification",
+      },
+    ],
+  },
+  {
     section: "Users",
     items: [{ label: "Customers", icon: "👥", href: "/woreda/customers" }],
   },
@@ -45,6 +60,16 @@ export const WOREDA_PAGE_META = {
     title: "Field Officers",
     sub: "Manage billing and complaint officers",
     action: "+ Add Officer",
+  },
+  "/woreda/messages/announcement": {
+    title: "Announcement",
+    sub: "Send woreda announcements as app notifications",
+    action: "",
+  },
+  "/woreda/messages/notification": {
+    title: "Notification",
+    sub: "View woreda in-app notifications",
+    action: "",
   },
   "/woreda/officers/billing": {
     title: "Billing Officers",

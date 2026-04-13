@@ -26,15 +26,32 @@ export default function BillingOfficersPage() {
   }, [subcities]);
 
   const normalizeOfficers = (payload) => {
-    if (Array.isArray(payload)) {
-      return payload;
-    }
+    const rows = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
 
-    if (Array.isArray(payload?.data)) {
-      return payload.data;
-    }
+    return rows.map((row) => {
+      const base = row?.user && typeof row.user === "object" ? row.user : row;
+      const resolvedStatus =
+        base?.status ||
+        row?.status ||
+        (row?.isActive === false ? "SUSPENDED" : "ACTIVE");
 
-    return [];
+      return {
+        id: base?.id || row?.id,
+        fullName: base?.fullName || row?.fullName || "",
+        email: base?.email || row?.email || "",
+        phoneE164: base?.phoneE164 || row?.phoneE164 || "",
+        nationalId: base?.nationalId || row?.nationalId || "",
+        status: resolvedStatus,
+        createdAt: base?.createdAt || row?.createdAt || null,
+        subCityId:
+          base?.subCityId || row?.subCityId || row?.subCity?.id || null,
+        subCity: base?.subCity || row?.subCity || null,
+      };
+    });
   };
 
   const showToast = (type, text) => {

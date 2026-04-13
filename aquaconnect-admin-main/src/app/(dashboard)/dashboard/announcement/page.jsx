@@ -420,7 +420,14 @@ export default function DashboardAnnouncementPage() {
       setMessage("");
       await loadAnnouncements();
     } catch (err) {
-      setError(err?.message || "Failed to send announcement.");
+      const message = String(err?.message || "");
+      if (/forbidden/i.test(message)) {
+        setError(
+          "Forbidden: this action requires a SUPER_ADMIN account. Please sign out and sign in as super admin.",
+        );
+      } else {
+        setError(message || "Failed to send announcement.");
+      }
     } finally {
       setSending(false);
     }

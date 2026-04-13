@@ -1578,7 +1578,7 @@ class _PostSignInPageState extends State<PostSignInPage>
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _selectedComplaintCategory,
+                  initialValue: _selectedComplaintCategory,
                   decoration: InputDecoration(
                     labelText: _t('Category', 'ምድብ'),
                     border: OutlineInputBorder(

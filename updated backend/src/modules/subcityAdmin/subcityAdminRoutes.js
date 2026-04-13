@@ -29,7 +29,22 @@ const validateRequest = (req, res, next) => {
 router.post('/login', loginValidator, validateRequest, SubcityAdminController.login);
 
 // Protected routes
-router.use(authenticate, authorize('SUBCITY_ADMIN'));
+router.use(authenticate);
+
+// ANNOUNCEMENTS (Subcity admin + subcity billing officer)
+router.get(
+  '/announcements',
+  authorize('SUBCITY_ADMIN', 'SUBCITY_BILLING_OFFICER'),
+  SubcityAdminController.getAnnouncements
+);
+router.post(
+  '/announcements',
+  authorize('SUBCITY_ADMIN', 'SUBCITY_BILLING_OFFICER'),
+  SubcityAdminController.createAnnouncement
+);
+
+// Remaining subcity admin routes
+router.use(authorize('SUBCITY_ADMIN'));
 
 // WOREDA ADMINS
 router.post(
@@ -87,9 +102,5 @@ router.post(
 router.get('/users', SubcityAdminController.getUsers);
 
 router.get('/users/:woredaId', SubcityAdminController.getUsersByWoreda);
-
-// ANNOUNCEMENTS
-router.get('/announcements', SubcityAdminController.getAnnouncements);
-router.post('/announcements', SubcityAdminController.createAnnouncement);
 
 export default router;

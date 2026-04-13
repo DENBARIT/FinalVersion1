@@ -38,6 +38,12 @@ const DB_TO_UI_COMPLAINT_STATUS = {
 const OFFICER_UI_TO_ROLE = {
   BILLING_OFFICER: 'WOREDA_BILLING_OFFICER',
   COMPLAINT_OFFICER: 'WOREDA_COMPLAINT_OFFICER',
+  INSTALLER_METER_ASSIGNMENT: 'FIELD_OFFICER',
+  TECHNICIAN: 'FIELD_OFFICER',
+  PIPELINE_REPAIR: 'FIELD_OFFICER',
+  DRIVER: 'FIELD_OFFICER',
+  EXCAVATION_CREW: 'FIELD_OFFICER',
+  LEAK_DETECTION_TEAM: 'FIELD_OFFICER',
 };
 
 const OFFICER_ROLE_TO_UI = {
@@ -54,6 +60,8 @@ const OFFICER_ROLES = [
   'WOREDA_BILLING_OFFICER',
   'WOREDA_COMPLAINT_OFFICER',
 ];
+
+const OFFICER_UI_TYPES = new Set(Object.keys(OFFICER_UI_TO_ROLE));
 
 const normalizeWoredaIds = (value) => {
   if (Array.isArray(value)) {
@@ -575,7 +583,7 @@ const toOfficerView = (user) => ({
   phoneE164: user.phoneE164,
   nationalId: user.nationalId,
   role: user.role,
-  fieldOfficerType: OFFICER_ROLE_TO_UI[user.role] || 'BILLING_OFFICER',
+  fieldOfficerType: user.fieldOfficerType || OFFICER_ROLE_TO_UI[user.role] || 'BILLING_OFFICER',
   status: user.status,
   woreda: user.woreda
     ? {
@@ -1054,7 +1062,7 @@ class SuperAdminService {
 
   // Get Complaint Officers
   static async getComplaintOfficers({ subCityId, woredaId }) {
-    return prisma.user.findMany({
+    const rows = await prisma.user.findMany({
       where: {
         role: {
           in: ['SUBCITY_COMPLAINT_OFFICER', 'WOREDA_COMPLAINT_OFFICER'],
@@ -1063,17 +1071,16 @@ class SuperAdminService {
         ...(woredaId && { woredaId }),
         deletedAt: null,
       },
-      select: {
-        id: true,
-        fullName: true,
-        role: true,
-        subCityId: true,
-        woredaId: true,
+      include: {
+        subCity: { select: { id: true, name: true } },
+        woreda: { select: { id: true, name: true } },
       },
     });
+
+    return rows.map(toOfficerView);
   }
   static async getBillingOfficers({ subCityId, woredaId }) {
-    return prisma.user.findMany({
+    const rows = await prisma.user.findMany({
       where: {
         role: {
           in: ['SUBCITY_BILLING_OFFICER', 'WOREDA_BILLING_OFFICER'],
@@ -1082,14 +1089,13 @@ class SuperAdminService {
         ...(woredaId && { woredaId }),
         deletedAt: null,
       },
-      select: {
-        id: true,
-        fullName: true,
-        role: true,
-        subCityId: true,
-        woredaId: true,
+      include: {
+        subCity: { select: { id: true, name: true } },
+        woreda: { select: { id: true, name: true } },
       },
     });
+
+    return rows.map(toOfficerView);
   }
 
   static async getComplaints({ status, assignedToId, woredaId, subCityId }) {
@@ -1648,7 +1654,7 @@ class SuperAdminService {
     const rows = await prisma.user.findMany({
       where: {
         role: {
-          in: ['WOREDA_BILLING_OFFICER', 'WOREDA_COMPLAINT_OFFICER'],
+          in: ['WOREDA_BILLING_OFFICER', 'WOREDA_COMPLAINT_OFFICER', 'FIELD_OFFICER'],
         },
         deletedAt: null,
         ...(woredaId ? { woredaId } : {}),
@@ -1678,6 +1684,10 @@ class SuperAdminService {
   }
 
   static async createWoredaFieldOfficer(data) {
+    if (!OFFICER_UI_TYPES.has(data.fieldOfficerType)) {
+      throw new Error('Invalid field officer type');
+    }
+
     const role = OFFICER_UI_TO_ROLE[data.fieldOfficerType];
     if (!role) {
       throw new Error('Invalid field officer type');
@@ -1706,6 +1716,7 @@ class SuperAdminService {
         nationalId: data.nationalId,
         passwordHash,
         role,
+        fieldOfficerType: data.fieldOfficerType,
         status: 'ACTIVE',
         subCityId: woreda.subCityId,
         woredaId: woreda.id,
@@ -1743,6 +1754,10 @@ class SuperAdminService {
       throw new Error('User is not a woreda field officer');
     }
 
+    if (data.fieldOfficerType && !OFFICER_UI_TYPES.has(data.fieldOfficerType)) {
+      throw new Error('Invalid field officer type');
+    }
+
     const role = data.fieldOfficerType ? OFFICER_UI_TO_ROLE[data.fieldOfficerType] : existing.role;
 
     const updated = await prisma.user.update({
@@ -1754,6 +1769,7 @@ class SuperAdminService {
         ...(data.nationalId ? { nationalId: data.nationalId } : {}),
         ...(data.status ? { status: data.status } : {}),
         ...(role ? { role } : {}),
+        ...(data.fieldOfficerType ? { fieldOfficerType: data.fieldOfficerType } : {}),
       },
       include: {
         woreda: {
