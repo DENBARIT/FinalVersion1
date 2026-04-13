@@ -74,6 +74,7 @@ const EMOJI_OPTIONS = [
 ];
 
 export default function DashboardAnnouncementPage() {
+  const [isMounted, setIsMounted] = useState(false);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [targetGroup, setTargetGroup] = useState("ALL_USERS");
@@ -91,6 +92,7 @@ export default function DashboardAnnouncementPage() {
   const [templateName, setTemplateName] = useState("");
   const [templateLanguage, setTemplateLanguage] = useState("EN");
   const [expandedAnnouncementIds, setExpandedAnnouncementIds] = useState([]);
+  const [emojiTarget, setEmojiTarget] = useState("BODY");
 
   const requiresSubCity =
     targetGroup === "SUBCITY_USERS" ||
@@ -138,6 +140,10 @@ export default function DashboardAnnouncementPage() {
     }));
     return [...builtIn, ...saved];
   }, [customTemplates]);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const loadAnnouncements = async () => {
     setLoading(true);
@@ -267,7 +273,48 @@ export default function DashboardAnnouncementPage() {
   };
 
   const appendEmoji = (emoji) => {
+    if (emojiTarget === "TITLE") {
+      setTitle((prev) => (prev ? `${prev} ${emoji}` : emoji));
+      return;
+    }
     setMessage((prev) => (prev ? `${prev} ${emoji}` : emoji));
+  };
+
+  const splitDraftContent = (text) => {
+    const normalized = (text || "").replace(/\r\n/g, "\n").trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const lines = normalized.split("\n");
+    const titleLine = (lines[0] || "").trim();
+    if (!titleLine) {
+      return null;
+    }
+
+    const body = lines.slice(1).join("\n").trim();
+    if (!body) {
+      return null;
+    }
+
+    return {
+      title: titleLine,
+      body,
+    };
+  };
+
+  const handleDraftPaste = (event) => {
+    const pasted = event.clipboardData?.getData("text") || "";
+    const parsed = splitDraftContent(pasted);
+    if (!parsed) {
+      return;
+    }
+
+    event.preventDefault();
+    setTitle(parsed.title);
+    setMessage(parsed.body);
+    setMessageText("Draft pasted into title and body.");
+    setError("");
   };
 
   const saveCurrentAsTemplate = () => {
@@ -368,7 +415,7 @@ export default function DashboardAnnouncementPage() {
       };
 
       const response = await superAdminService.createAnnouncement(payload);
-      setMessageText(response?.message || "Announcement sent successfully.");
+      setMessageText(response?.message || "Announcement send");
       setTitle("");
       setMessage("");
       await loadAnnouncements();
@@ -378,6 +425,10 @@ export default function DashboardAnnouncementPage() {
       setSending(false);
     }
   };
+
+  if (!isMounted) {
+    return <div className="text-[#e8f4f0]" />;
+  }
 
   return (
     <div className="text-[#e8f4f0]">
@@ -544,6 +595,7 @@ export default function DashboardAnnouncementPage() {
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onPaste={handleDraftPaste}
               placeholder="Service update for customers"
               className="w-full bg-[rgba(29,158,117,0.04)] border border-[rgba(29,158,117,0.1)] rounded-xl px-3 py-2 text-xs text-[#e8f4f0] placeholder-[rgba(232,244,240,0.25)] outline-none focus:border-[rgba(29,158,117,0.4)] transition-all"
             />
@@ -556,15 +608,26 @@ export default function DashboardAnnouncementPage() {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
+              onPaste={handleDraftPaste}
               rows={5}
               placeholder="Dear customers, water supply will be interrupted today from 2PM to 6PM due to maintenance works."
               className="w-full bg-[rgba(29,158,117,0.04)] border border-[rgba(29,158,117,0.1)] rounded-xl px-3 py-2 text-xs text-[#e8f4f0] placeholder-[rgba(232,244,240,0.25)] outline-none focus:border-[rgba(29,158,117,0.4)] transition-all"
             />
 
             <div className="rounded-lg border border-[rgba(29,158,117,0.1)] bg-[rgba(29,158,117,0.03)] p-2">
-              <p className="mb-2 text-[10px] text-[rgba(232,244,240,0.45)]">
-                Emoji quick insert
-              </p>
+              <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-[10px] text-[rgba(232,244,240,0.45)]">
+                  Emoji quick insert
+                </p>
+                <select
+                  value={emojiTarget}
+                  onChange={(e) => setEmojiTarget(e.target.value)}
+                  className="rounded-md border border-[rgba(29,158,117,0.2)] bg-[rgba(29,158,117,0.08)] px-2 py-1 text-[10px] text-[#e8f4f0]"
+                >
+                  <option value="BODY">Insert in body</option>
+                  <option value="TITLE">Insert in title</option>
+                </select>
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {EMOJI_OPTIONS.map((emoji) => (
                   <button

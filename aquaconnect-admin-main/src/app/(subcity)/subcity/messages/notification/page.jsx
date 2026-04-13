@@ -7,7 +7,16 @@ import { superAdminService } from "@/features/super-admin/services/superAdmin.se
 export default function SubcityNotificationPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [expandedNotificationIds, setExpandedNotificationIds] = useState([]);
   const subCityId = getJwtPayload()?.subCityId || "";
+
+  const toggleNotificationExpansion = (notificationId) => {
+    setExpandedNotificationIds((prev) =>
+      prev.includes(notificationId)
+        ? prev.filter((id) => id !== notificationId)
+        : [...prev, notificationId],
+    );
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -76,27 +85,45 @@ export default function SubcityNotificationPage() {
         </p>
       </div>
       <div className="px-6 py-4 space-y-3">
-        {rows.map((n) => (
-          <div
-            key={n.id}
-            className="rounded-xl border border-[rgba(29,158,117,0.08)] bg-[rgba(29,158,117,0.03)] p-4"
-          >
-            <p className="font-syne text-sm text-[rgba(232,244,240,0.9)]">
-              {n.title}
-            </p>
-            <p className="text-[10px] uppercase tracking-wide text-[rgba(29,158,117,0.8)] mt-1">
-              {n.source === "SUPER_ADMIN"
-                ? "Super Admin Announcement"
-                : "Subcity Notification"}
-            </p>
-            <p className="text-xs text-[rgba(232,244,240,0.55)] mt-1">
-              {n.message}
-            </p>
-            <p className="text-[10px] text-[rgba(232,244,240,0.35)] mt-2">
-              {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
-            </p>
-          </div>
-        ))}
+        {rows.map((n) => {
+          const fullMessage = String(n.message || "");
+          const isExpanded = expandedNotificationIds.includes(n.id);
+          const isLongMessage = fullMessage.length > 220;
+          const compactMessage = isLongMessage
+            ? `${fullMessage.slice(0, 220).trimEnd()}...`
+            : fullMessage;
+
+          return (
+            <div
+              key={n.id}
+              className="rounded-xl border border-[rgba(29,158,117,0.08)] bg-[rgba(29,158,117,0.03)] p-4"
+            >
+              <p className="font-syne text-sm text-[rgba(232,244,240,0.9)]">
+                {n.title}
+              </p>
+              <p className="text-[10px] uppercase tracking-wide text-[rgba(29,158,117,0.8)] mt-1">
+                {n.source === "SUPER_ADMIN"
+                  ? "Super Admin Announcement"
+                  : "Subcity Notification"}
+              </p>
+              <p className="text-xs text-[rgba(232,244,240,0.55)] mt-1 whitespace-pre-wrap">
+                {isExpanded ? fullMessage : compactMessage}
+              </p>
+              {isLongMessage && (
+                <button
+                  type="button"
+                  onClick={() => toggleNotificationExpansion(n.id)}
+                  className="mt-2 text-[11px] font-semibold text-[#7ce4be] hover:text-[#9ef1cf]"
+                >
+                  {isExpanded ? "Show less ^" : "Read more v"}
+                </button>
+              )}
+              <p className="text-[10px] text-[rgba(232,244,240,0.35)] mt-2">
+                {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
+              </p>
+            </div>
+          );
+        })}
         {!loading && !rows.length && (
           <p className="text-[10px] text-[rgba(232,244,240,0.35)]">
             No notifications available.
