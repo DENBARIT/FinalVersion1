@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:city_water_flutter/my_flutter_app/main.dart' as aqua_home;
 import 'package:city_water_flutter/screens/meter_scan_screen.dart';
 import 'package:city_water_flutter/services/announcement_service.dart';
+import 'package:city_water_flutter/services/auth_service.dart';
 import 'package:city_water_flutter/services/complaint_service.dart';
 import 'package:city_water_flutter/services/ownership_change_service.dart';
 import 'package:city_water_flutter/services/schedule_notification_service.dart';
@@ -84,6 +85,10 @@ class _PostSignInPageState extends State<PostSignInPage>
   bool _isLoadingScheduleNotifications = false;
   int _scheduleUnreadCount = 0;
   List<WaterScheduleItem> _scheduleNotifications = const [];
+  bool _isLoadingComplaintMessages = false;
+  int _complaintUnreadCount = 0;
+  List<ComplaintNotificationItem> _complaintMessages = const [];
+  bool _areComplaintDraftsExpanded = false;
   DateTime _scheduleCalendarMonth = DateTime(
     DateTime.now().year,
     DateTime.now().month,
@@ -292,6 +297,7 @@ class _PostSignInPageState extends State<PostSignInPage>
     await _syncOcrWindowStatus();
     await _loadAnnouncements();
     await _loadScheduleNotifications();
+    await _loadComplaintMessages();
     await _loadComplaintLocation();
   }
 
@@ -522,6 +528,114 @@ class _PostSignInPageState extends State<PostSignInPage>
           _isLoadingScheduleNotifications = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadComplaintMessages() async {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingComplaintMessages = true;
+    });
+
+    try {
+      final feed =
+          await ComplaintNotificationService.fetchComplaintNotifications();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _complaintMessages = feed.items;
+        _complaintUnreadCount = feed.unreadCount;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _complaintMessages = const [];
+        _complaintUnreadCount = 0;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingComplaintMessages = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _markComplaintMessageAsRead(
+    ComplaintNotificationItem item,
+  ) async {
+    if (item.isRead || item.id.trim().isEmpty) {
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _complaintMessages = _complaintMessages
+          .map(
+            (message) => message.id == item.id
+                ? ComplaintNotificationItem(
+                    id: message.id,
+                    title: message.title,
+                    message: message.message,
+                    createdAt: message.createdAt,
+                    isRead: true,
+                    type: message.type,
+                    complaintId: message.complaintId,
+                    complaintTitle: message.complaintTitle,
+                    complaintCategory: message.complaintCategory,
+                    sentById: message.sentById,
+                  )
+                : message,
+          )
+          .toList();
+      _complaintUnreadCount = _complaintMessages
+          .where((message) => !message.isRead)
+          .length;
+    });
+
+    try {
+      await ComplaintNotificationService.markComplaintNotificationAsRead(
+        item.id,
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _complaintMessages = _complaintMessages
+            .map(
+              (message) => message.id == item.id
+                  ? ComplaintNotificationItem(
+                      id: message.id,
+                      title: message.title,
+                      message: message.message,
+                      createdAt: message.createdAt,
+                      isRead: item.isRead,
+                      type: message.type,
+                      complaintId: message.complaintId,
+                      complaintTitle: message.complaintTitle,
+                      complaintCategory: message.complaintCategory,
+                      sentById: message.sentById,
+                    )
+                  : message,
+            )
+            .toList();
+        _complaintUnreadCount = _complaintMessages
+            .where((message) => !message.isRead)
+            .length;
+      });
     }
   }
 
@@ -1385,6 +1499,404 @@ class _PostSignInPageState extends State<PostSignInPage>
     newOwnerPasswordController.dispose();
   }
 
+  Future<void> _openProfileDetailsModal() async {
+    Navigator.pop(context);
+
+    UserProfileDetails profile;
+    try {
+      profile = await OwnershipChangeService.fetchUserProfileDetails();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final subCityLabel = _registeredSubCityName.isNotEmpty
+        ? _registeredSubCityName
+        : (profile.subCityId.isNotEmpty
+              ? profile.subCityId
+              : _t('Not set', 'አልተሞላም'));
+    final woredaLabel = _registeredWoredaName.isNotEmpty
+        ? _registeredWoredaName
+        : (profile.woredaId.isNotEmpty
+              ? profile.woredaId
+              : _t('Not set', 'አልተሞላም'));
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: _isDarkMode ? _darkSurface : const Color(0xFF124A86),
+          title: Text(_t('Profile Details', 'የፕሮፋይል ዝርዝሮች')),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _profileInfoRow(_t('Full Name', 'ሙሉ ስም'), profile.fullName),
+                _profileInfoRow(_t('Email', 'ኢሜይል'), profile.email),
+                _profileInfoRow(_t('National ID', 'መታወቂያ'), profile.nationalId),
+                _profileInfoRow(
+                  _t('Phone Number', 'ስልክ ቁጥር'),
+                  profile.phoneE164,
+                ),
+                _profileInfoRow(_t('Subcity', 'ክፍለ ከተማ'), subCityLabel),
+                _profileInfoRow(_t('Woreda', 'ወረዳ'), woredaLabel),
+                _profileInfoRow(
+                  _t('Meter Number', 'የሜትር ቁጥር'),
+                  profile.meterNumber,
+                ),
+                _profileInfoRow(_t('Password', 'የይለፍ ቃል'), '********'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _profileInfoRow(String label, String value) {
+    final safeValue = value.trim().isEmpty ? _t('Not set', 'አልተሞላም') : value;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        '$label: $safeValue',
+        style: const TextStyle(color: Colors.white, height: 1.4),
+      ),
+    );
+  }
+
+  Future<void> _openChangePasswordModal() async {
+    Navigator.pop(context);
+
+    UserProfileDetails profile;
+    try {
+      profile = await OwnershipChangeService.fetchUserProfileDetails();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        var isSubmitting = false;
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            Future<void> submit() async {
+              final newPassword = newPasswordController.text.trim();
+              final confirmPassword = confirmPasswordController.text.trim();
+
+              if (newPassword.isEmpty || confirmPassword.isEmpty) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      _t(
+                        'Please enter both new and confirm password.',
+                        'እባክዎ አዲስ እና ማረጋገጫ የይለፍ ቃል ያስገቡ።',
+                      ),
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              if (newPassword != confirmPassword) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      _t('Passwords do not match.', 'የይለፍ ቃሎቹ አይመሳሰሉም።'),
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              setModalState(() {
+                isSubmitting = true;
+              });
+
+              try {
+                await AuthService.forgotPassword(email: profile.email);
+
+                if (!mounted) {
+                  return;
+                }
+
+                if (!dialogContext.mounted) {
+                  return;
+                }
+
+                Navigator.of(dialogContext).pop();
+                await _openPasswordOtpVerificationModal(
+                  email: profile.email,
+                  newPassword: newPassword,
+                );
+              } catch (error) {
+                if (!mounted) {
+                  return;
+                }
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      error.toString().replaceFirst('Exception: ', ''),
+                    ),
+                  ),
+                );
+              } finally {
+                if (mounted) {
+                  setModalState(() {
+                    isSubmitting = false;
+                  });
+                }
+              }
+            }
+
+            return AlertDialog(
+              backgroundColor: _isDarkMode
+                  ? _darkSurface
+                  : const Color(0xFF124A86),
+              title: Text(_t('Change Password', 'የይለፍ ቃል ቀይር')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: newPasswordController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: _t('New Password', 'አዲስ የይለፍ ቃል'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmPasswordController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: _t('Confirm Password', 'የይለፍ ቃል አረጋግጥ'),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: Text(_t('Cancel', 'ተው')),
+                ),
+                ElevatedButton(
+                  onPressed: isSubmitting ? null : submit,
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(_t('Send OTP', 'OTP ላክ')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    newPasswordController.dispose();
+    confirmPasswordController.dispose();
+  }
+
+  Future<void> _openPasswordOtpVerificationModal({
+    required String email,
+    required String newPassword,
+  }) async {
+    if (!mounted) {
+      return;
+    }
+
+    final otpController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        var isSubmitting = false;
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            Future<void> verify() async {
+              final otp = otpController.text.trim();
+              if (otp.isEmpty) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(_t('Please enter OTP.', 'እባክዎ OTP ያስገቡ።')),
+                  ),
+                );
+                return;
+              }
+
+              setModalState(() {
+                isSubmitting = true;
+              });
+
+              try {
+                await AuthService.validateResetOtp(email: email, otp: otp);
+                await AuthService.resetPassword(
+                  email: email,
+                  otp: otp,
+                  newPassword: newPassword,
+                );
+
+                if (!mounted) {
+                  return;
+                }
+
+                if (!dialogContext.mounted) {
+                  return;
+                }
+
+                Navigator.of(dialogContext).pop();
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      _t(
+                        'Password changed successfully.',
+                        'የይለፍ ቃል በተሳካ ሁኔታ ተቀይሯል።',
+                      ),
+                    ),
+                  ),
+                );
+              } catch (error) {
+                if (!mounted) {
+                  return;
+                }
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      error.toString().replaceFirst('Exception: ', ''),
+                    ),
+                  ),
+                );
+              } finally {
+                if (mounted) {
+                  setModalState(() {
+                    isSubmitting = false;
+                  });
+                }
+              }
+            }
+
+            Future<void> resendOtp() async {
+              try {
+                await AuthService.forgotPassword(email: email);
+                if (!mounted) {
+                  return;
+                }
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      _t(
+                        'OTP resent to your email.',
+                        'OTP ወደ ኢሜይልዎ እንደገና ተልኳል።',
+                      ),
+                    ),
+                  ),
+                );
+              } catch (error) {
+                if (!mounted) {
+                  return;
+                }
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      error.toString().replaceFirst('Exception: ', ''),
+                    ),
+                  ),
+                );
+              }
+            }
+
+            return AlertDialog(
+              backgroundColor: _isDarkMode
+                  ? _darkSurface
+                  : const Color(0xFF124A86),
+              title: Text(_t('Verify OTP', 'OTP ያረጋግጡ')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _t(
+                      'Enter the OTP sent to $email',
+                      '$email ወደ ተላከው OTP ያስገቡ',
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: otpController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: _t('OTP Code', 'OTP ኮድ'),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : resendOtp,
+                  child: Text(_t('Resend OTP', 'OTP እንደገና ላክ')),
+                ),
+                ElevatedButton(
+                  onPressed: isSubmitting ? null : verify,
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(_t('Verify', 'አረጋግጥ')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    otpController.dispose();
+  }
+
   void _selectFeature(DashboardFeature feature) {
     final index = _visibleFeatures.indexOf(feature);
     if (index < 0) {
@@ -1539,18 +2051,28 @@ class _PostSignInPageState extends State<PostSignInPage>
     ];
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: cardBg,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: _isDarkMode ? _darkBorder : const Color(0xFFE2E8F0),
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(
+                    alpha: _isDarkMode ? 0.24 : 0.07,
+                  ),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1558,242 +2080,545 @@ class _PostSignInPageState extends State<PostSignInPage>
                 Row(
                   children: [
                     Icon(
-                      Icons.feedback_outlined,
+                      Icons.track_changes_outlined,
                       color: _lightAccent,
                       size: 24,
                     ),
                     const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _t('Track Complaints', 'ቅሬታዎችን ይከታተሉ'),
+                        style: GoogleFonts.syne(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                        ),
+                      ),
+                    ),
                     Text(
-                      _t('Fill a Complaint', 'ቅሬታ ያስገቡ'),
-                      style: GoogleFonts.syne(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: textColor,
+                      _t(
+                        'New: $_complaintUnreadCount',
+                        'አዲስ: $_complaintUnreadCount',
+                      ),
+                      style: const TextStyle(
+                        color: Color(0xFF1E90FF),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                _readonlyInfoRow(
-                  _t('Registered Subcity', 'የተመዘገበ ክፍለ ከተማ'),
-                  _isLoadingComplaintLocation
-                      ? _t('Loading...', 'በመጫን ላይ...')
-                      : (_registeredSubCityName.isEmpty
-                            ? _t('Not available', 'አልተገኘም')
-                            : _registeredSubCityName),
-                ),
                 const SizedBox(height: 8),
-                _readonlyInfoRow(
-                  _t('Registered Woreda', 'የተመዘገበ ወረዳ'),
-                  _isLoadingComplaintLocation
-                      ? _t('Loading...', 'በመጫን ላይ...')
-                      : (_registeredWoredaName.isEmpty
-                            ? _t('Not available', 'አልተገኘም')
-                            : _registeredWoredaName),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _complaintTitleController,
-                  decoration: InputDecoration(
-                    labelText: _t('Complaint Title', 'የቅሬታ ርዕስ'),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                Text(
+                  _t(
+                    'Officer messages and complaint updates appear here when they are sent to your account.',
+                    'ከሹማምንት የሚላኩ መልዕክቶች እና የቅሬታ ዝማኔዎች ወደ መለያዎ ሲላኩ እዚህ ይታያሉ።',
                   ),
+                  style: TextStyle(color: bodyColor, fontSize: 12.5),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedComplaintCategory,
-                  decoration: InputDecoration(
-                    labelText: _t('Category', 'ምድብ'),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                if (_isLoadingComplaintMessages)
+                  const Center(child: CircularProgressIndicator())
+                else if (_complaintMessages.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      _t('No complaint messages yet.', 'እስካሁን የቅሬታ መልዕክት የለም።'),
+                      style: TextStyle(color: bodyColor, fontSize: 12.5),
                     ),
-                  ),
-                  items: categories
-                      .map(
-                        (key) => DropdownMenuItem<String>(
-                          value: key,
-                          child: Text(_categoryLabel(key)),
+                  )
+                else
+                  Column(
+                    children: [
+                      for (
+                        var index = 0;
+                        index < _complaintMessages.length;
+                        index += 1
+                      ) ...[
+                        _buildComplaintMessageItem(
+                          _complaintMessages[index],
+                          textColor,
+                          bodyColor,
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-                    setState(() {
-                      _selectedComplaintCategory = value;
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _complaintBodyController,
-                  minLines: 4,
-                  maxLines: 7,
-                  decoration: InputDecoration(
-                    hintText: _t(
-                      'Describe your complaint in detail...',
-                      'ችግኝዎን በዝርዝር ይግለጹ...',
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                        if (index != _complaintMessages.length - 1)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: _isDarkMode
+                                  ? _darkBorder.withValues(alpha: 0.7)
+                                  : const Color(0xFFE2E8F0),
+                            ),
+                          ),
+                      ],
+                    ],
                   ),
-                ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSubmittingComplaint ? null : _submitComplaint,
-                    icon: _isSubmittingComplaint
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send_outlined),
-                    label: Text(
-                      _isSubmittingComplaint
-                          ? _t('Submitting...', 'በማስገባት ላይ...')
-                          : _t('Submit Complaint', 'ቅሬታ ላክ'),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E90FF),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(46),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _buildCornerRefreshButton(
+                    isLoading: _isLoadingComplaintMessages,
+                    onPressed: _loadComplaintMessages,
+                    tooltip: _t(
+                      'Refresh complaint messages',
+                      'የቅሬታ መልዕክቶችን አድስ',
                     ),
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 20),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: _isDarkMode
+                ? _darkBorder.withValues(alpha: 0.7)
+                : const Color(0xFFE2E8F0),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Icon(Icons.feedback_outlined, color: _lightAccent, size: 24),
+              const SizedBox(width: 10),
+              Text(
+                _t('Fill a Complaint', 'ቅሬታ ያስገቡ'),
+                style: GoogleFonts.syne(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: textColor,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: _isDarkMode ? _darkBorder : const Color(0xFFE2E8F0),
+          _plainComplaintLine(
+            _t('Registered Subcity', 'የተመዘገበ ክፍለ ከተማ'),
+            _isLoadingComplaintLocation
+                ? _t('Loading...', 'በመጫን ላይ...')
+                : (_registeredSubCityName.isEmpty
+                      ? _t('Not available', 'አልተገኘም')
+                      : _registeredSubCityName),
+            bodyColor,
+          ),
+          const SizedBox(height: 8),
+          _plainComplaintLine(
+            _t('Registered Woreda', 'የተመዘገበ ወረዳ'),
+            _isLoadingComplaintLocation
+                ? _t('Loading...', 'በመጫን ላይ...')
+                : (_registeredWoredaName.isEmpty
+                      ? _t('Not available', 'አልተገኘም')
+                      : _registeredWoredaName),
+            bodyColor,
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _complaintTitleController,
+            decoration: InputDecoration(
+              labelText: _t('Complaint Title', 'የቅሬታ ርዕስ'),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _t('Complaint Drafts', 'የቅሬታ ድራፍቶች'),
-                  style: GoogleFonts.syne(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _t(
-                    'Use these templates to compose and copy your complaint quickly (English and Amharic).',
-                    'ቅሬታዎን በፍጥነት ለማዘጋጀት እነዚህን አብነቶች ይጠቀሙ (እንግሊዝኛ እና አማርኛ)።',
-                  ),
-                  style: TextStyle(color: bodyColor, fontSize: 12.5),
-                ),
-                const SizedBox(height: 10),
-                ...drafts.map((draft) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: _isDarkMode
-                          ? const Color(0xFF142238)
-                          : const Color(0xFFE5F4FE),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _isDarkMode
-                            ? _darkBorder
-                            : const Color(0xFFBFDBFE),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${draft.titleEn} / ${draft.titleAm}',
-                          style: TextStyle(
-                            color: textColor,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () =>
-                                    _copyComplaintDraft(draft, 'en'),
-                                icon: const Icon(Icons.copy, size: 16),
-                                label: Text(_t('Copy English', 'እንግሊዝኛ ቅዳ')),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () =>
-                                    _copyComplaintDraft(draft, 'am'),
-                                icon: const Icon(Icons.copy, size: 16),
-                                label: Text(_t('Copy Amharic', 'አማርኛ ቅዳ')),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-              ],
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _selectedComplaintCategory,
+            decoration: InputDecoration(
+              labelText: _t('Category', 'ምድብ'),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
+            items: categories
+                .map(
+                  (key) => DropdownMenuItem<String>(
+                    value: key,
+                    child: Text(_categoryLabel(key)),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              setState(() {
+                _selectedComplaintCategory = value;
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _complaintBodyController,
+            minLines: 4,
+            maxLines: 7,
+            decoration: InputDecoration(
+              hintText: _t(
+                'Describe your complaint in detail...',
+                'ችግኝዎን በዝርዝር ይግለጹ...',
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSubmittingComplaint ? null : _submitComplaint,
+              icon: _isSubmittingComplaint
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_outlined),
+              label: Text(
+                _isSubmittingComplaint
+                    ? _t('Submitting...', 'በማስገባት ላይ...')
+                    : _t('Submit Complaint', 'ቅሬታ ላክ'),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E90FF),
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(46),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: _isDarkMode
+                ? _darkBorder.withValues(alpha: 0.7)
+                : const Color(0xFFE2E8F0),
+          ),
+          const SizedBox(height: 18),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: EdgeInsets.zero,
+            initiallyExpanded: _areComplaintDraftsExpanded,
+            onExpansionChanged: (value) {
+              setState(() {
+                _areComplaintDraftsExpanded = value;
+              });
+            },
+            title: Text(
+              _t('Complaint Drafts', 'የቅሬታ ድራፍቶች'),
+              style: GoogleFonts.syne(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: textColor,
+              ),
+            ),
+            subtitle: Text(
+              _t(
+                'Tap to open or close the draft templates.',
+                'የድራፍት አብነቶችን ለመክፈት ወይም ለመዝጋት ይንኩ።',
+              ),
+              style: TextStyle(color: bodyColor, fontSize: 12.5),
+            ),
+            children: [
+              const SizedBox(height: 10),
+              Text(
+                _t(
+                  'Use these templates to compose and copy your complaint quickly (English and Amharic).',
+                  'ቅሬታዎን በፍጥነት ለማዘጋጀት እነዚህን አብነቶች ይጠቀሙ (እንግሊዝኛ እና አማርኛ)።',
+                ),
+                style: TextStyle(color: bodyColor, fontSize: 12.5),
+              ),
+              const SizedBox(height: 10),
+              for (var index = 0; index < drafts.length; index += 1) ...[
+                _buildDraftTemplateItem(drafts[index], textColor),
+                if (index != drafts.length - 1)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: _isDarkMode
+                          ? _darkBorder.withValues(alpha: 0.7)
+                          : const Color(0xFFE2E8F0),
+                    ),
+                  ),
+              ],
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _readonlyInfoRow(String label, String value) {
+  Widget _plainComplaintLine(String label, String value, Color bodyColor) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 132,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: _isDarkMode ? Colors.white : const Color(0xFF1E3A8A),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              color: _isDarkMode ? _darkMuted : bodyColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDraftTemplateItem(_ComplaintDraft draft, Color textColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${draft.titleEn} / ${draft.titleAm}',
+          style: TextStyle(
+            color: textColor,
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          draft.english,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: _isDarkMode ? _darkMuted : const Color(0xFF475569),
+            fontSize: 12,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _copyComplaintDraft(draft, 'en'),
+                icon: const Icon(Icons.copy, size: 16),
+                label: Text(_t('Copy English', 'እንግሊዝኛ ቅዳ')),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _copyComplaintDraft(draft, 'am'),
+                icon: const Icon(Icons.copy, size: 16),
+                label: Text(_t('Copy Amharic', 'አማርኛ ቅዳ')),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildComplaintMessageItem(
+    ComplaintNotificationItem item,
+    Color textColor,
+    Color bodyColor,
+  ) {
+    final isUnread = !item.isRead;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () async {
+        await _markComplaintMessageAsRead(item);
+        if (!mounted) {
+          return;
+        }
+        _openComplaintMessageDetail(item);
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: isUnread
+              ? (_isDarkMode
+                    ? const Color(0xFF142238)
+                    : const Color(0xFFEAF4FF))
+              : (_isDarkMode
+                    ? const Color(0xFF101926)
+                    : const Color(0xFFF8FAFC)),
+          boxShadow: isUnread
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF1E90FF).withValues(alpha: 0.18),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    item.title.isNotEmpty
+                        ? item.title
+                        : _t('Complaint Update', 'የቅሬታ ዝማኔ'),
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+                if (isUnread)
+                  Container(
+                    width: 9,
+                    height: 9,
+                    margin: const EdgeInsets.only(left: 6),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF1E90FF),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              item.message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: bodyColor, fontSize: 12.5, height: 1.45),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                if (item.complaintTitle.isNotEmpty)
+                  _complaintMetaChip(
+                    Icons.receipt_long_outlined,
+                    item.complaintTitle,
+                  ),
+                if (item.complaintCategory.isNotEmpty)
+                  _complaintMetaChip(
+                    Icons.category_outlined,
+                    _categoryLabel(item.complaintCategory),
+                  ),
+                if (item.createdAt != null)
+                  _complaintMetaChip(
+                    Icons.schedule_outlined,
+                    _timeAgoLabel(item.createdAt),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openComplaintMessageDetail(ComplaintNotificationItem item) {
+    final bodyColor = _isDarkMode ? _darkMuted : const Color(0xFF334155);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _isDarkMode
+          ? const Color(0xFF0B1B2F)
+          : const Color(0xFFF8FBFF),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.title.isNotEmpty
+                    ? item.title
+                    : _t('Complaint Update', 'የቅሬታ ዝማኔ'),
+                style: GoogleFonts.syne(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _isDarkMode ? Colors.white : const Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                item.message,
+                style: TextStyle(
+                  color: bodyColor,
+                  fontSize: 13.2,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (item.complaintTitle.isNotEmpty)
+                    _complaintMetaChip(
+                      Icons.receipt_long_outlined,
+                      item.complaintTitle,
+                    ),
+                  if (item.complaintCategory.isNotEmpty)
+                    _complaintMetaChip(
+                      Icons.category_outlined,
+                      _categoryLabel(item.complaintCategory),
+                    ),
+                  if (item.createdAt != null)
+                    _complaintMetaChip(
+                      Icons.schedule_outlined,
+                      _timeAgoLabel(item.createdAt),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _complaintMetaChip(IconData icon, String label) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: _isDarkMode ? const Color(0xFF142238) : const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(10),
+        color: _isDarkMode ? const Color(0xFF0B1A2B) : const Color(0xFFEAF4FF),
+        borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: _isDarkMode ? _darkBorder : const Color(0xFFBFDBFE),
         ),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: _isDarkMode ? Colors.white : const Color(0xFF1E3A8A),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontSize: 12,
-                color: _isDarkMode ? _darkMuted : const Color(0xFF334155),
-              ),
+          Icon(icon, size: 12, color: _lightAccent),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: _isDarkMode ? Colors.white : const Color(0xFF0F172A),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -3412,6 +4237,37 @@ class _PostSignInPageState extends State<PostSignInPage>
                   vertical: 10,
                 ),
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(28),
+                      onTap: _openProfileDetailsModal,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 8,
+                        ),
+                        child: CircleAvatar(
+                          radius: 24,
+                          backgroundColor: const Color(0xFF1E90FF),
+                          child: Text(
+                            _username.trim().isEmpty
+                                ? 'U'
+                                : _username
+                                      .trim()
+                                      .substring(0, 1)
+                                      .toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                   ListTile(
                     leading: const Icon(Icons.dark_mode_outlined),
                     title: Text(_t('Dark Mode', 'ጨለማ ገጽታ')),
@@ -3466,34 +4322,14 @@ class _PostSignInPageState extends State<PostSignInPage>
                     onTap: _openOwnershipChangeModal,
                   ),
                   ListTile(
+                    leading: const Icon(Icons.lock_reset_outlined),
+                    title: Text(_t('Change Password', 'የይለፍ ቃል ቀይር')),
+                    onTap: _openChangePasswordModal,
+                  ),
+                  ListTile(
                     leading: const Icon(Icons.person_outline),
                     title: Text(_t('Profile & Settings', 'ፕሮፋይል እና ቅንብሮች')),
-                    onTap: () {
-                      Navigator.pop(context);
-                      showDialog<void>(
-                        context: context,
-                        builder: (ctx) {
-                          return AlertDialog(
-                            backgroundColor: _isDarkMode
-                                ? _darkSurface
-                                : const Color(0xFF124A86),
-                            title: Text(_t('Profile', 'ፕሮፋይል')),
-                            content: Text(
-                              _t(
-                                'Name: $_username\nLanguage: ${_language == 'en' ? 'English' : 'Amharic'}',
-                                'ስም: $_username\nቋንቋ: ${_language == 'en' ? 'እንግሊዝኛ' : 'አማርኛ'}',
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                child: const Text('OK'),
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                    },
+                    onTap: _openProfileDetailsModal,
                   ),
                 ],
               ),
