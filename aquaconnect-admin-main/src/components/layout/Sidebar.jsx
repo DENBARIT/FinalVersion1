@@ -29,6 +29,7 @@ export default function Sidebar({
   const [changePasswordLoading, setChangePasswordLoading] = useState(false);
   const [newAssignedComplaintsCount, setNewAssignedComplaintsCount] =
     useState(0);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
   const {
     register,
@@ -73,9 +74,9 @@ export default function Sidebar({
   useEffect(() => {
     const payload = getJwtPayload() || {};
     const role = String(payload?.role || "").toUpperCase();
+    const isSubcityComplaintOfficer = role === "SUBCITY_COMPLAINT_OFFICER";
     const isComplaintOfficer =
-      role === "SUBCITY_COMPLAINT_OFFICER" ||
-      role === "WOREDA_COMPLAINT_OFFICER";
+      isSubcityComplaintOfficer || role === "WOREDA_COMPLAINT_OFFICER";
 
     if (!isComplaintOfficer || !payload?.userId) {
       setNewAssignedComplaintsCount(0);
@@ -86,11 +87,12 @@ export default function Sidebar({
 
     const loadNewAssignedCount = async () => {
       try {
+        const statusFilter = isSubcityComplaintOfficer ? "ESCALATED" : "OPEN";
         const rows = await apiRequest("/super-admin/complaints", {
           useAuth: true,
           query: {
             assignedToId: payload.userId,
-            status: "OPEN",
+            status: statusFilter,
             subCityId: payload?.subCityId || "",
             woredaId: payload?.woredaId || "",
           },
@@ -114,6 +116,77 @@ export default function Sidebar({
     return () => {
       cancelled = true;
       clearInterval(timerId);
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    const payload = getJwtPayload() || {};
+    const role = String(payload?.role || "").toUpperCase();
+    const isSubcityAdmin = role === "SUBCITY_ADMIN";
+
+    if (!isSubcityAdmin || !payload?.userId) {
+      setUnreadNotificationsCount(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadUnreadNotifications = async () => {
+      try {
+        const [announcementFeed, notificationFeed] = await Promise.all([
+          apiRequest("/auth/announcements", { useAuth: true }),
+          apiRequest("/auth/notifications", { useAuth: true }),
+        ]);
+
+        const announcementUnread = Number(
+          announcementFeed?.unreadCount ??
+            announcementFeed?.data?.unreadCount ??
+            0,
+        );
+        const notificationUnread = Number(
+          notificationFeed?.unreadCount ??
+            notificationFeed?.data?.unreadCount ??
+            0,
+        );
+
+        if (!cancelled) {
+          setUnreadNotificationsCount(
+            Math.max(0, announcementUnread) + Math.max(0, notificationUnread),
+          );
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          setUnreadNotificationsCount(0);
+        }
+      }
+    };
+
+    void loadUnreadNotifications();
+
+    const handleUnreadRefresh = () => {
+      void loadUnreadNotifications();
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener(
+        "subcity-notifications-updated",
+        handleUnreadRefresh,
+      );
+    }
+
+    const timerId = setInterval(() => {
+      void loadUnreadNotifications();
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+      if (typeof window !== "undefined") {
+        window.removeEventListener(
+          "subcity-notifications-updated",
+          handleUnreadRefresh,
+        );
+      }
     };
   }, [pathname]);
 
@@ -219,6 +292,14 @@ export default function Sidebar({
               const showMyAssignmentsBadge =
                 href === "/complaint/complaints/assigned" &&
                 newAssignedComplaintsCount > 0;
+              const showSubcityNotificationBadge =
+                href === "/subcity/messages/notification" &&
+                unreadNotificationsCount > 0;
+              const badgeCount = showMyAssignmentsBadge
+                ? newAssignedComplaintsCount
+                : showSubcityNotificationBadge
+                  ? unreadNotificationsCount
+                  : 0;
               const itemClass = `flex items-center gap-2 px-3 py-2 mx-2 rounded-lg transition-all text-xs mb-0.5 ${active ? "bg-[rgba(29,158,117,0.12)] text-[#1D9E75]" : "text-[rgba(232,244,240,0.45)] hover:bg-[rgba(29,158,117,0.07)] hover:text-[#e8f4f0]"}`;
 
               if (kind === "group") {
@@ -279,9 +360,9 @@ export default function Sidebar({
                       {label}
                     </span>
                   )}
-                  {showMyAssignmentsBadge && (
+                  {badgeCount > 0 && (
                     <span className="ml-auto inline-flex min-w-5 h-5 px-1.5 items-center justify-center rounded-full bg-[#E24B4A] text-white text-[10px] font-bold">
-                      {newAssignedComplaintsCount}
+                      {badgeCount}
                     </span>
                   )}
                 </Link>

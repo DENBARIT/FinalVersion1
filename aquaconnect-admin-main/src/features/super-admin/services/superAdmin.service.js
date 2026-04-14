@@ -253,6 +253,19 @@ export const superAdminService = {
       method: "PATCH",
       body: { fieldOfficerId },
     }),
+  updateComplaintResolutionPlan: (
+    id,
+    {
+      assignedTeam = "",
+      highLevelSolution = "",
+      notifySubcityAdmins = false,
+    } = {},
+  ) =>
+    apiRequest(`/super-admin/complaints/${id}/resolution-plan`, {
+      ...withAuth,
+      method: "PATCH",
+      body: { assignedTeam, highLevelSolution, notifySubcityAdmins },
+    }),
   escalateComplaint: (id, reason = "") =>
     apiRequest(`/super-admin/complaints/${id}/escalate`, {
       ...withAuth,
@@ -267,6 +280,18 @@ export const superAdminService = {
       ...withAuth,
       method: "POST",
       body: { subject, message, sendEmail, sendInApp },
+    }),
+  contactComplaintSubcityAdmins: (id, { subject = "", message = "" } = {}) =>
+    apiRequest(`/super-admin/complaints/${id}/contact-subcity-admins`, {
+      ...withAuth,
+      method: "POST",
+      body: { subject, message },
+    }),
+  contactComplaintSubcityOfficer: (id, { subject = "", message = "" } = {}) =>
+    apiRequest(`/super-admin/complaints/${id}/contact-subcity-officer`, {
+      ...withAuth,
+      method: "POST",
+      body: { subject, message },
     }),
 
   // Schedules
@@ -331,6 +356,16 @@ export const superAdminService = {
   getUserNotifications: () =>
     apiRequest("/auth/notifications", {
       ...withAuth,
+    }),
+  markAnnouncementAsRead: (id) =>
+    apiRequest(`/auth/announcements/${id}/read`, {
+      ...withAuth,
+      method: "PATCH",
+    }),
+  markNotificationAsRead: (id) =>
+    apiRequest(`/auth/notifications/${id}/read`, {
+      ...withAuth,
+      method: "PATCH",
     }),
   createAnnouncement: (body) =>
     apiRequest("/super-admin/announcements", {

@@ -466,6 +466,48 @@ class AuthService {
     };
   }
 
+  async markNotificationAsRead(userId, notificationId) {
+    const normalizedNotificationId = String(notificationId || '').trim();
+    if (!normalizedNotificationId) {
+      throw new Error('Notification id is required');
+    }
+
+    const notification = await prisma.notification.findFirst({
+      where: {
+        id: normalizedNotificationId,
+        userId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!notification) {
+      throw new Error('Notification not found for this user');
+    }
+
+    await prisma.notification.update({
+      where: {
+        id: notification.id,
+      },
+      data: {
+        isRead: true,
+      },
+    });
+
+    const unreadCount = await prisma.notification.count({
+      where: {
+        userId,
+        isRead: false,
+      },
+    });
+
+    return {
+      notificationId: notification.id,
+      unreadCount,
+    };
+  }
+
   async registerUser(data) {
     const { fullName, phoneE164, email, password, nationalId, meterNumber, subCityId, woredaId } =
       data;
@@ -1130,6 +1172,83 @@ class AuthService {
         preference: true,
       },
     });
+  }
+
+  async getOwnershipHistoryForWoreda(userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+        woredaId: true,
+      },
+    });
+
+    if (!user || user.deletedAt || user.status !== 'ACTIVE') {
+      throw new Error('User not found or inactive');
+    }
+
+    if (!['WOREDA_ADMIN', 'WOREDA_ADMINS'].includes(user.role)) {
+      throw new Error('Only woreda admins can access ownership history');
+    }
+
+    if (!user.woredaId) {
+      throw new Error('Your profile is missing woreda assignment');
+    }
+
+    const history = await prisma.meterOwnershipHistory.findMany({
+      where: {
+        meter: {
+          woredaId: user.woredaId,
+          deletedAt: null,
+        },
+      },
+      include: {
+        meter: {
+          select: {
+            id: true,
+            meterNumber: true,
+            registeredFullName: true,
+            registeredNationalId: true,
+            woredaId: true,
+            subCityId: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phoneE164: true,
+            nationalId: true,
+          },
+        },
+      },
+      orderBy: [{ startDate: 'desc' }],
+      take: 100,
+    });
+
+    return {
+      items: history.map((item) => ({
+        id: item.id,
+        meterId: item.meterId,
+        meterNumber: item.meter?.meterNumber || '',
+        registeredFullName: item.meter?.registeredFullName || '',
+        registeredNationalId: item.meter?.registeredNationalId || '',
+        woredaId: item.meter?.woredaId || '',
+        subCityId: item.meter?.subCityId || '',
+        userId: item.userId,
+        ownerFullName: item.user?.fullName || '',
+        ownerEmail: item.user?.email || '',
+        ownerPhone: item.user?.phoneE164 || '',
+        ownerNationalId: item.user?.nationalId || '',
+        startDate: item.startDate,
+        endDate: item.endDate,
+        isCurrent: item.endDate == null,
+      })),
+    };
   }
 
   async createComplaint(userId, payload) {

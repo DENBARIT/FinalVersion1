@@ -31,7 +31,7 @@ const UI_TO_DB_COMPLAINT_STATUS = {
 const DB_TO_UI_COMPLAINT_STATUS = {
   PENDING: 'OPEN',
   IN_PROGRESS: 'IN_PROGRESS',
-  ESCALATED: 'IN_PROGRESS',
+  ESCALATED: 'ESCALATED',
   RESOLVED: 'RESOLVED',
   REJECTED: 'CLOSED',
 };
@@ -319,6 +319,17 @@ const toComplaintView = (complaint) => ({
         fieldOfficerType: complaint.assignedFieldOfficer.fieldOfficerType,
       }
     : null,
+  escalationReason: complaint.escalationReason || '',
+  escalatedAt: complaint.escalatedAt,
+  resolvedAt: complaint.resolvedAt,
+  resolutionNotes: complaint.resolutionNotes || '',
+  escalatedBy: complaint.escalatedBy
+    ? {
+        id: complaint.escalatedBy.id,
+        fullName: complaint.escalatedBy.fullName,
+        email: complaint.escalatedBy.email,
+      }
+    : null,
 });
 
 const formatDateForEmail = (value) => {
@@ -369,6 +380,54 @@ const buildProgressEmail = ({ complaint, updatedByName }) => {
           <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">We are in progress to solve the problem.</p>
           <p style="margin: 0; color: #5c6d7f; font-size: 12px;">Updated by: ${
             updatedByName || 'Woreda Complaint Team'
+          }</p>
+        </div>
+        <div style="padding: 14px 24px; border-top: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; color: #7a8796;">This email was sent by AquaConnect. Please do not reply directly to this message.</p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return { subject, text, html };
+};
+
+const buildResolvedEmail = ({ complaint, resolvedByName }) => {
+  const complaintSentDate = formatDateForEmail(complaint.createdAt);
+  const complaintType =
+    String(complaint.category || '')
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/(^|\s)\S/g, (value) => value.toUpperCase()) || 'Other';
+  const submittedByName = complaint.customer?.fullName || 'Unknown customer';
+  const subject = `AquaConnect Complaint Resolved: ${
+    toPlainText(complaint.title) || 'Your Complaint'
+  }`;
+
+  const text = `Your complaint has been resolved.\n\nComplaint title: ${
+    toPlainText(complaint.title) || 'Your Complaint'
+  }\nComplaint type: ${complaintType}\nSubmitted by: ${submittedByName}\nSubmitted date: ${complaintSentDate}\nCurrent status: Resolved\n\nResolved by: ${
+    resolvedByName || 'Complaint Team'
+  }\n\nThank you for your patience.`;
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; background: #eef3f7; padding: 24px;">
+      <div style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #d7e1ea; border-radius: 14px; overflow: hidden; box-shadow: 0 8px 24px rgba(6, 32, 62, 0.12);">
+        <div style="height: 6px; background: linear-gradient(90deg, #1D9E75, #2e86de, #1D9E75);"></div>
+        <div style="padding: 22px 24px 16px 24px; border-bottom: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; letter-spacing: 1.6px; color: #1D9E75; font-weight: 800;">AQUACONNECT</p>
+          <h2 style="margin: 8px 0 0 0; color: #17324d; font-size: 22px; line-height: 1.3;">Complaint Status: Resolved</h2>
+        </div>
+        <div style="padding: 20px 24px 24px 24px;">
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">Your complaint has been resolved. Thank you for your patience.</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Complaint title:</strong> ${
+            toPlainText(complaint.title) || 'Your Complaint'
+          }</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Complaint type:</strong> ${complaintType}</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Submitted by:</strong> ${submittedByName}</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Submitted date:</strong> ${complaintSentDate}</p>
+          <p style="margin: 0; color: #5c6d7f; font-size: 12px;">Resolved by: ${
+            resolvedByName || 'Complaint Team'
           }</p>
         </div>
         <div style="padding: 14px 24px; border-top: 1px solid #e8eef4; background: #f9fcff;">
@@ -1197,12 +1256,24 @@ class SuperAdminService {
     return rows.map(toOfficerView);
   }
 
-  static async getComplaints({ status, assignedToId, woredaId, subCityId, category }) {
+  static async getComplaints(
+    { status, assignedToId, woredaId, subCityId, category },
+    actor = null
+  ) {
+    const actorRole = String(actor?.role || '').toUpperCase();
+    const enforcedSubCityId =
+      actorRole === 'SUBCITY_COMPLAINT_OFFICER' ? String(actor?.subCityId || '') : '';
+    const enforcedWoredaId =
+      actorRole === 'WOREDA_COMPLAINT_OFFICER' ? String(actor?.woredaId || '') : '';
+
+    const effectiveSubCityId = enforcedSubCityId || subCityId;
+    const effectiveWoredaId = enforcedWoredaId || woredaId;
+
     const where = {
       deletedAt: null,
       ...(assignedToId ? { assignedToId } : {}),
-      ...(woredaId ? { woredaId } : {}),
-      ...(subCityId ? { subCityId } : {}),
+      ...(effectiveWoredaId ? { woredaId: effectiveWoredaId } : {}),
+      ...(effectiveSubCityId ? { subCityId: effectiveSubCityId } : {}),
       ...(category ? { category } : {}),
     };
 
@@ -1250,6 +1321,13 @@ class SuperAdminService {
             fieldOfficerType: true,
           },
         },
+        escalatedBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -1268,6 +1346,7 @@ class SuperAdminService {
         deletedAt: true,
         createdAt: true,
         title: true,
+        category: true,
         customerId: true,
         customer: {
           select: {
@@ -1333,6 +1412,13 @@ class SuperAdminService {
             fieldOfficerType: true,
           },
         },
+        escalatedBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
     });
 
@@ -1375,6 +1461,44 @@ class SuperAdminService {
               complaintTitle: toPlainText(complaint.title),
               submittedBy: complaint.customer?.fullName || null,
               submittedDate: complaint.createdAt,
+            },
+            isSent: false,
+            sentVia: ['IN_APP'],
+          },
+        });
+      }
+    }
+
+    if (dbStatus === 'RESOLVED') {
+      const customerEmail = String(complaint.customer?.email || '').trim();
+      const resolvedByName = actor?.fullName || actor?.email || 'Complaint Team';
+
+      if (customerEmail) {
+        const { subject, text, html } = buildResolvedEmail({ complaint, resolvedByName });
+        await sendEmail(customerEmail, subject, text, html);
+      }
+
+      if (complaint.customerId) {
+        await prisma.notification.create({
+          data: {
+            userId: complaint.customerId,
+            type: 'COMPLAINT_UPDATE',
+            title: {
+              en: 'Complaint resolved',
+              am: 'ቅሬታዎ ተፈትቷል',
+            },
+            message: {
+              en: `Your complaint "${
+                toPlainText(complaint.title) || 'Complaint'
+              }" has been resolved.`,
+              am: 'ቅሬታዎ ተፈትቷል።',
+            },
+            data: {
+              complaintId: complaint.id,
+              status: 'RESOLVED',
+              complaintCategory: complaint.category,
+              complaintTitle: toPlainText(complaint.title),
+              resolvedBy: resolvedByName,
             },
             isSent: false,
             sentVia: ['IN_APP'],
@@ -1457,6 +1581,13 @@ class SuperAdminService {
             fieldOfficerType: true,
           },
         },
+        escalatedBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
     });
 
@@ -1530,8 +1661,98 @@ class SuperAdminService {
             fieldOfficerType: true,
           },
         },
+        escalatedBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
     });
+
+    if (updated.subCity?.id) {
+      const admins = await prisma.user.findMany({
+        where: {
+          role: 'SUBCITY_ADMIN',
+          subCityId: updated.subCity.id,
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          email: true,
+        },
+      });
+
+      const complaintCategory =
+        String(updated.category || 'OTHER')
+          .toLowerCase()
+          .replace(/_/g, ' ') || 'other';
+      const complaintTitle = String(updated.title || '').trim() || `Complaint ${updated.id}`;
+      const complaintDescription = String(updated.description || '').trim();
+      const customerName = String(updated.customer?.fullName || 'Unknown customer').trim();
+      const woredaName = String(updated.woreda?.name || 'Unknown woreda').trim();
+      const escalatedByName =
+        String(updated.escalatedBy?.fullName || actor?.fullName || actor?.email || '').trim() ||
+        'Woreda complaint officer';
+      const assignedOfficerId = String(updated.assignedTo?.id || '').trim();
+      const assignedOfficerName = String(updated.assignedTo?.fullName || '').trim();
+
+      const subject = 'Escalated complaint requires subcity attention';
+      const detailLines = [
+        `Complaint ID: ${updated.id}`,
+        `Title: ${complaintTitle}`,
+        `Category: ${complaintCategory}`,
+        `Customer: ${customerName}`,
+        `Woreda: ${woredaName}`,
+        `Escalated by: ${escalatedByName}`,
+        `Reason: ${updated.escalationReason || 'Escalated from woreda'}`,
+        complaintDescription ? `Description: ${complaintDescription}` : '',
+      ].filter(Boolean);
+      const detailText = detailLines.join('\n');
+
+      await Promise.all(
+        admins.map(async (admin) => {
+          if (String(admin.email || '').trim()) {
+            await sendEmail(
+              admin.email,
+              subject,
+              detailText,
+              `<p>${detailLines.join('<br/>')}</p>`
+            );
+          }
+
+          await prisma.notification.create({
+            data: {
+              userId: admin.id,
+              type: 'COMPLAINT_UPDATE',
+              title: {
+                en: subject,
+                am: subject,
+              },
+              message: {
+                en: detailText,
+                am: detailText,
+              },
+              data: {
+                complaintId: updated.id,
+                complaintTitle,
+                complaintDescription,
+                complaintCategory,
+                customerName,
+                woredaName,
+                escalatedByName,
+                subcityComplaintOfficerId: assignedOfficerId || null,
+                subcityComplaintOfficerName: assignedOfficerName || null,
+              },
+              isSent: false,
+              sentVia: ['IN_APP'],
+            },
+          });
+        })
+      );
+    }
 
     return toComplaintView(updated);
   }
@@ -1602,6 +1823,297 @@ class SuperAdminService {
       customerId: complaint.customerId,
       sentEmail: Boolean(sendEmailFlag),
       sentInApp: Boolean(sendInAppFlag),
+    };
+  }
+
+  static async updateComplaintResolutionPlan(complaintId, payload = {}, actor = null) {
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      select: {
+        id: true,
+        deletedAt: true,
+        status: true,
+        subCityId: true,
+      },
+    });
+
+    if (!complaint || complaint.deletedAt) {
+      throw new Error('Complaint not found');
+    }
+
+    const assignedTeam = String(payload.assignedTeam || '').trim();
+    const highLevelSolution = String(payload.highLevelSolution || '').trim();
+    const notifySubcityAdmins = payload.notifySubcityAdmins === true;
+
+    if (!assignedTeam && !highLevelSolution) {
+      throw new Error('Provide assigned team or high level solution details');
+    }
+
+    const notes = [
+      assignedTeam ? `Assigned team: ${assignedTeam}` : '',
+      highLevelSolution ? `High-level solution: ${highLevelSolution}` : '',
+      actor?.fullName || actor?.email ? `Updated by: ${actor.fullName || actor.email}` : '',
+      `Updated at: ${new Date().toISOString()}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const updatePayload = {
+      resolutionNotes: notes,
+      ...(complaint.status === 'PENDING' ? { status: 'IN_PROGRESS' } : {}),
+    };
+
+    const updated = await prisma.complaint.update({
+      where: { id: complaintId },
+      data: updatePayload,
+      include: {
+        subCity: { select: { id: true, name: true } },
+        woreda: { select: { id: true, name: true } },
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phoneE164: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            fieldOfficerType: true,
+          },
+        },
+        assignedFieldOfficer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            fieldOfficerType: true,
+          },
+        },
+        escalatedBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (notifySubcityAdmins && complaint.subCityId) {
+      const admins = await prisma.user.findMany({
+        where: {
+          role: 'SUBCITY_ADMIN',
+          subCityId: complaint.subCityId,
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+        },
+      });
+
+      const subject = 'Complaint resolution plan updated';
+      const text = `A complaint resolution plan has been updated for complaint ID ${complaintId}.\n\n${notes}`;
+      const html = `<p>A complaint resolution plan has been updated for complaint ID <strong>${complaintId}</strong>.</p><pre>${notes}</pre>`;
+
+      await Promise.all(
+        admins.map(async (admin) => {
+          if (String(admin.email || '').trim()) {
+            await sendEmail(admin.email, subject, text, html);
+          }
+
+          await prisma.notification.create({
+            data: {
+              userId: admin.id,
+              type: 'COMPLAINT_UPDATE',
+              title: { en: subject, am: subject },
+              message: {
+                en: `Complaint ${complaintId} has a new resolution plan update.`,
+                am: `ቅሬታ ${complaintId} አዲስ የመፍትሄ ዝማኔ አለው።`,
+              },
+              data: {
+                complaintId,
+                assignedTeam,
+                highLevelSolution,
+              },
+              isSent: false,
+              sentVia: ['IN_APP'],
+            },
+          });
+        })
+      );
+    }
+
+    return toComplaintView(updated);
+  }
+
+  static async contactComplaintSubcityAdmins(complaintId, payload = {}, actor = null) {
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      select: {
+        id: true,
+        deletedAt: true,
+        subCityId: true,
+      },
+    });
+
+    if (!complaint || complaint.deletedAt || !complaint.subCityId) {
+      throw new Error('Complaint not found');
+    }
+
+    const subject = String(payload.subject || '').trim() || 'Complaint escalation update';
+    const message = String(payload.message || '').trim();
+
+    if (!message) {
+      throw new Error('Message is required');
+    }
+
+    const admins = await prisma.user.findMany({
+      where: {
+        role: 'SUBCITY_ADMIN',
+        subCityId: complaint.subCityId,
+        status: 'ACTIVE',
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        email: true,
+      },
+    });
+
+    await Promise.all(
+      admins.map(async (admin) => {
+        if (String(admin.email || '').trim()) {
+          await sendEmail(
+            admin.email,
+            subject,
+            message,
+            `<p>${message.replace(/\n/g, '<br/>')}</p>`
+          );
+        }
+
+        await prisma.notification.create({
+          data: {
+            userId: admin.id,
+            type: 'COMPLAINT_UPDATE',
+            title: {
+              en: subject,
+              am: subject,
+            },
+            message: {
+              en: message,
+              am: message,
+            },
+            data: {
+              complaintId,
+              sentById: actor?.id || null,
+            },
+            isSent: false,
+            sentVia: ['IN_APP'],
+          },
+        });
+      })
+    );
+
+    return {
+      complaintId,
+      contactedCount: admins.length,
+    };
+  }
+
+  static async contactComplaintSubcityOfficer(complaintId, payload = {}, actor = null) {
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      select: {
+        id: true,
+        deletedAt: true,
+        subCityId: true,
+        assignedTo: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            status: true,
+            deletedAt: true,
+            subCityId: true,
+          },
+        },
+        escalatedBy: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            status: true,
+            deletedAt: true,
+            subCityId: true,
+          },
+        },
+      },
+    });
+
+    if (!complaint || complaint.deletedAt) {
+      throw new Error('Complaint not found');
+    }
+
+    const subject = String(payload.subject || '').trim() || 'Complaint update request';
+    const message = String(payload.message || '').trim();
+
+    if (!message) {
+      throw new Error('Message is required');
+    }
+
+    const officer = [complaint.assignedTo, complaint.escalatedBy].find(
+      (candidate) =>
+        candidate &&
+        candidate.role === 'SUBCITY_COMPLAINT_OFFICER' &&
+        candidate.status === 'ACTIVE' &&
+        !candidate.deletedAt &&
+        (!complaint.subCityId ||
+          !candidate.subCityId ||
+          candidate.subCityId === complaint.subCityId)
+    );
+
+    if (!officer?.id) {
+      throw new Error('No active subcity complaint officer found for this complaint');
+    }
+
+    const targetEmail = String(officer.email || '').trim();
+    if (targetEmail) {
+      await sendEmail(targetEmail, subject, message, `<p>${message.replace(/\n/g, '<br/>')}</p>`);
+    }
+
+    await prisma.notification.create({
+      data: {
+        userId: officer.id,
+        type: 'COMPLAINT_UPDATE',
+        title: {
+          en: subject,
+          am: subject,
+        },
+        message: {
+          en: message,
+          am: message,
+        },
+        data: {
+          complaintId,
+          sentById: actor?.id || null,
+        },
+        isSent: false,
+        sentVia: ['IN_APP'],
+      },
+    });
+
+    return {
+      complaintId,
+      officerId: officer.id,
+      sentEmail: Boolean(targetEmail),
+      sentInApp: true,
     };
   }
 

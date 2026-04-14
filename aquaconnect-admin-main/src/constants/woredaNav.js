@@ -4,6 +4,11 @@ export const WOREDA_NAV = [
     items: [
       { label: "Overview", icon: "⬛", href: "/woreda" },
       {
+        label: "Ownership Change",
+        icon: "🔄",
+        href: "/woreda/ownership-change",
+      },
+      {
         label: "Change Password",
         icon: "🔐",
         href: "/woreda/change-password",
@@ -62,6 +67,11 @@ export const WOREDA_PAGE_META = {
   "/woreda": {
     title: "Overview",
     sub: "Welcome back, Woreda Admin",
+    action: "",
+  },
+  "/woreda/ownership-change": {
+    title: "Ownership Change",
+    sub: "Review meter ownership transfers in your woreda",
     action: "",
   },
   "/woreda/change-password": {

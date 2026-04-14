@@ -140,3 +140,152 @@ class ComplaintService {
     return data;
   }
 }
+
+class ComplaintNotificationFeed {
+  const ComplaintNotificationFeed({
+    required this.unreadCount,
+    required this.items,
+  });
+
+  final int unreadCount;
+  final List<ComplaintNotificationItem> items;
+
+  factory ComplaintNotificationFeed.fromJson(Map<String, dynamic> json) {
+    final itemsRaw = json['items'];
+    final parsedItems = (itemsRaw is List)
+        ? itemsRaw
+              .whereType<Map<String, dynamic>>()
+              .map(ComplaintNotificationItem.fromJson)
+              .where((item) => item.type == 'COMPLAINT_UPDATE')
+              .toList()
+        : <ComplaintNotificationItem>[];
+
+    return ComplaintNotificationFeed(
+      unreadCount: parsedItems.where((item) => !item.isRead).length,
+      items: parsedItems,
+    );
+  }
+}
+
+class ComplaintNotificationItem {
+  const ComplaintNotificationItem({
+    required this.id,
+    required this.title,
+    required this.message,
+    required this.createdAt,
+    required this.isRead,
+    required this.type,
+    required this.complaintId,
+    required this.complaintTitle,
+    required this.complaintCategory,
+    required this.sentById,
+  });
+
+  final String id;
+  final String title;
+  final String message;
+  final DateTime? createdAt;
+  final bool isRead;
+  final String type;
+  final String complaintId;
+  final String complaintTitle;
+  final String complaintCategory;
+  final String sentById;
+
+  factory ComplaintNotificationItem.fromJson(Map<String, dynamic> json) {
+    final createdAtText = json['createdAt']?.toString();
+    final data = json['data'];
+    final dataMap = data is Map<String, dynamic>
+        ? data
+        : const <String, dynamic>{};
+
+    return ComplaintNotificationItem(
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      message: json['message']?.toString() ?? '',
+      createdAt: createdAtText == null
+          ? null
+          : DateTime.tryParse(createdAtText),
+      isRead: json['isRead'] == true,
+      type: json['type']?.toString() ?? '',
+      complaintId: dataMap['complaintId']?.toString() ?? '',
+      complaintTitle: dataMap['complaintTitle']?.toString() ?? '',
+      complaintCategory: dataMap['complaintCategory']?.toString() ?? '',
+      sentById: dataMap['sentById']?.toString() ?? '',
+    );
+  }
+}
+
+class ComplaintNotificationService {
+  static Future<String> _token() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('login_access_token') ?? '';
+  }
+
+  static Future<ComplaintNotificationFeed> fetchComplaintNotifications() async {
+    final token = await _token();
+    if (token.isEmpty) {
+      throw Exception('Missing login token.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/auth/notifications');
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    final decoded = jsonDecode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final message = (decoded is Map<String, dynamic>)
+          ? (decoded['message']?.toString() ??
+                decoded['error']?.toString() ??
+                'Failed to load complaint notifications')
+          : 'Failed to load complaint notifications';
+      throw Exception(message);
+    }
+
+    final data = (decoded is Map<String, dynamic>)
+        ? (decoded['data'] is Map<String, dynamic>
+              ? decoded['data'] as Map<String, dynamic>
+              : decoded)
+        : <String, dynamic>{};
+
+    return ComplaintNotificationFeed.fromJson(data);
+  }
+
+  static Future<void> markComplaintNotificationAsRead(
+    String notificationId,
+  ) async {
+    final id = notificationId.trim();
+    if (id.isEmpty) {
+      return;
+    }
+
+    final token = await _token();
+    if (token.isEmpty) {
+      throw Exception('Missing login token.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/auth/notifications/$id/read');
+    final response = await http.patch(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    final decoded = jsonDecode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final message = (decoded is Map<String, dynamic>)
+          ? (decoded['message']?.toString() ??
+                decoded['error']?.toString() ??
+                'Failed to mark complaint notification as read')
+          : 'Failed to mark complaint notification as read';
+      throw Exception(message);
+    }
+  }
+}

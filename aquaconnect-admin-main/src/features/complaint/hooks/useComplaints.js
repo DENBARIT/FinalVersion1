@@ -5,7 +5,7 @@ import { getJwtPayload } from "@/services/apiClient";
 import { superAdminService } from "@/features/super-admin/services/superAdmin.service";
 
 const PAGE_SIZE = 5;
-const STATUSES = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"];
+const STATUSES = ["OPEN", "IN_PROGRESS", "ESCALATED", "RESOLVED", "CLOSED"];
 
 export function useComplaints({
   assignedOnly = false,
@@ -15,12 +15,14 @@ export function useComplaints({
 } = {}) {
   const jwtPayload = getJwtPayload() || {};
   const role = String(jwtPayload?.role || "").toUpperCase();
-  const canUpdateStatus = role === "WOREDA_COMPLAINT_OFFICER";
+  const canUpdateStatus =
+    role === "WOREDA_COMPLAINT_OFFICER" || role === "SUBCITY_COMPLAINT_OFFICER";
 
   const [complaints, setComplaints] = useState([]);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState(statusFilter);
   const [filterCategory, setFilterCategory] = useState("");
+  const [filterWoredaId, setFilterWoredaId] = useState("");
   const [page, setPage] = useState(1);
   const [updateTarget, setUpdateTarget] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -33,9 +35,9 @@ export function useComplaints({
       const rows = await superAdminService.getComplaints({
         status: filterStatus,
         category: filterCategory,
+        woredaId: scopeWoredaId || filterWoredaId,
         assignedToId: assignedOnly ? currentOfficerId : "",
         subCityId: scopeSubCityId,
-        woredaId: scopeWoredaId,
       });
       setComplaints(Array.isArray(rows) ? rows : []);
     } catch (_error) {
@@ -48,6 +50,7 @@ export function useComplaints({
     currentOfficerId,
     filterStatus,
     filterCategory,
+    filterWoredaId,
     scopeSubCityId,
     scopeWoredaId,
   ]);
@@ -69,15 +72,23 @@ export function useComplaints({
         c.category?.toLowerCase().includes(search.toLowerCase());
       const matchStatus = !filterStatus || c.status === filterStatus;
       const matchCategory = !filterCategory || c.category === filterCategory;
+      const matchWoreda = !filterWoredaId || c.woreda?.id === filterWoredaId;
       const matchAssigned =
         !assignedOnly || c.assignedTo?.id === currentOfficerId;
-      return matchSearch && matchStatus && matchCategory && matchAssigned;
+      return (
+        matchSearch &&
+        matchStatus &&
+        matchCategory &&
+        matchWoreda &&
+        matchAssigned
+      );
     });
   }, [
     complaints,
     search,
     filterStatus,
     filterCategory,
+    filterWoredaId,
     assignedOnly,
     currentOfficerId,
   ]);
@@ -89,10 +100,10 @@ export function useComplaints({
     setActionError("");
 
     if (!canUpdateStatus) {
-      setActionError(
-        "You are not allowed to update complaint status from this account.",
-      );
-      return;
+      const message =
+        "You are not allowed to update complaint status from this account.";
+      setActionError(message);
+      return { ok: false, message };
     }
 
     setLoading(true);
@@ -100,15 +111,18 @@ export function useComplaints({
       await superAdminService.updateComplaintStatus(id, status);
       await loadComplaints();
       setUpdateTarget(null);
+      return { ok: true, message: "Complaint status updated." };
     } catch (error) {
       if (error?.status === 403) {
-        setActionError(
-          "Forbidden: your role cannot update complaint status. Please use a woreda complaint officer account.",
-        );
+        const message =
+          "Forbidden: your role cannot update complaint status. Please use a woreda complaint officer account.";
+        setActionError(message);
+        return { ok: false, message };
       } else {
-        setActionError(
-          error?.message || "Unable to update complaint status right now.",
-        );
+        const message =
+          error?.message || "Unable to update complaint status right now.";
+        setActionError(message);
+        return { ok: false, message };
       }
     } finally {
       setLoading(false);
@@ -126,6 +140,8 @@ export function useComplaints({
     setFilterStatus,
     filterCategory,
     setFilterCategory,
+    filterWoredaId,
+    setFilterWoredaId,
     loading,
     actionError,
     setActionError,
@@ -137,7 +153,9 @@ export function useComplaints({
     totalCount: filtered.length,
     allComplaints: complaints,
     newAssignedCount: complaints.filter(
-      (c) => c.status === "OPEN" && c.assignedTo?.id === currentOfficerId,
+      (c) =>
+        ["OPEN", "ESCALATED"].includes(c.status) &&
+        c.assignedTo?.id === currentOfficerId,
     ).length,
     STATUSES,
   };

@@ -15,6 +15,7 @@ router.post('/refresh-token', AuthController.getNewToken);
 router.post('/social-login', AuthController.socialLogin);
 
 router.get('/me', authenticate, AuthController.getMe);
+router.get('/ownership-history', authenticate, AuthController.getOwnershipHistory);
 router.post('/complaints', authenticate, AuthController.createComplaint);
 router.get('/ocr-window-status', authenticate, AuthController.getOcrWindowStatus);
 router.get('/announcements', authenticate, AuthController.getAnnouncements);
@@ -22,6 +23,7 @@ router.get('/schedule-notifications', authenticate, AuthController.getScheduleNo
 router.get('/notifications', authenticate, AuthController.getNotifications);
 router.get('/schedules', authenticate, AuthController.getSchedules);
 router.patch('/announcements/:id/read', authenticate, AuthController.markAnnouncementAsRead);
+router.patch('/notifications/:id/read', authenticate, AuthController.markNotificationAsRead);
 router.put('/change-password', authenticate, AuthController.changePassword);
 router.put('/update-location', authenticate, AuthController.updateLocation);
 router.post('/ownership-change', authenticate, AuthController.transferOwnership);

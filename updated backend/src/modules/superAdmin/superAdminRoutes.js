@@ -108,20 +108,50 @@ router.get(
 router.put(
   '/complaints/:id/status',
   authenticate,
-  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  authorize(
+    'SUPER_ADMIN',
+    'WOREDA_ADMINS',
+    'WOREDA_ADMIN',
+    'WOREDA_COMPLAINT_OFFICER',
+    'SUBCITY_COMPLAINT_OFFICER'
+  ),
   SuperAdminController.updateComplaintStatus
 );
 router.patch(
   '/complaints/:id/status',
   authenticate,
-  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  authorize(
+    'SUPER_ADMIN',
+    'WOREDA_ADMINS',
+    'WOREDA_ADMIN',
+    'WOREDA_COMPLAINT_OFFICER',
+    'SUBCITY_COMPLAINT_OFFICER'
+  ),
   SuperAdminController.updateComplaintStatus
 );
 router.patch(
   '/complaints/:id/assign-field-officer',
   authenticate,
-  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  authorize(
+    'SUPER_ADMIN',
+    'WOREDA_ADMINS',
+    'WOREDA_ADMIN',
+    'WOREDA_COMPLAINT_OFFICER',
+    'SUBCITY_COMPLAINT_OFFICER'
+  ),
   SuperAdminController.assignComplaintFieldOfficer
+);
+router.patch(
+  '/complaints/:id/resolution-plan',
+  authenticate,
+  authorize(
+    'SUPER_ADMIN',
+    'WOREDA_ADMINS',
+    'WOREDA_ADMIN',
+    'WOREDA_COMPLAINT_OFFICER',
+    'SUBCITY_COMPLAINT_OFFICER'
+  ),
+  SuperAdminController.updateComplaintResolutionPlan
 );
 router.patch(
   '/complaints/:id/escalate',
@@ -132,8 +162,39 @@ router.patch(
 router.post(
   '/complaints/:id/contact',
   authenticate,
-  authorize('SUPER_ADMIN', 'WOREDA_ADMINS', 'WOREDA_ADMIN', 'WOREDA_COMPLAINT_OFFICER'),
+  authorize(
+    'SUPER_ADMIN',
+    'WOREDA_ADMINS',
+    'WOREDA_ADMIN',
+    'WOREDA_COMPLAINT_OFFICER',
+    'SUBCITY_COMPLAINT_OFFICER'
+  ),
   SuperAdminController.contactComplaintCustomer
+);
+router.post(
+  '/complaints/:id/contact-subcity-admins',
+  authenticate,
+  authorize(
+    'SUPER_ADMIN',
+    'WOREDA_ADMINS',
+    'WOREDA_ADMIN',
+    'WOREDA_COMPLAINT_OFFICER',
+    'SUBCITY_COMPLAINT_OFFICER'
+  ),
+  SuperAdminController.contactComplaintSubcityAdmins
+);
+router.post(
+  '/complaints/:id/contact-subcity-officer',
+  authenticate,
+  authorize(
+    'SUPER_ADMIN',
+    'WOREDA_ADMINS',
+    'WOREDA_ADMIN',
+    'SUBCITY_ADMIN',
+    'WOREDA_COMPLAINT_OFFICER',
+    'SUBCITY_COMPLAINT_OFFICER'
+  ),
+  SuperAdminController.contactComplaintSubcityOfficer
 );
 
 router.get('/schedules', SuperAdminController.getSchedules);

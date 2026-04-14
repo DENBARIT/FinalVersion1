@@ -133,6 +133,19 @@ class AuthController {
     }
   }
 
+  async getOwnershipHistory(req, res) {
+    try {
+      const userId = req.user.id;
+      const result = await AuthService.getOwnershipHistoryForWoreda(userId);
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
   async createComplaint(req, res) {
     try {
       const userId = req.user.id;
@@ -234,6 +247,19 @@ class AuthController {
     try {
       const userId = req.user.id;
       const result = await AuthService.markAnnouncementAsRead(userId, req.params.id);
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async markNotificationAsRead(req, res) {
+    try {
+      const userId = req.user.id;
+      const result = await AuthService.markNotificationAsRead(userId, req.params.id);
       return res.status(200).json({
         success: true,
         data: result,

@@ -233,7 +233,7 @@ class SuperAdminController {
 
   static async getComplaints(req, res) {
     try {
-      const result = await SuperAdminService.getComplaints(req.query);
+      const result = await SuperAdminService.getComplaints(req.query, req.user || null);
       res.json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -282,6 +282,45 @@ class SuperAdminController {
   static async contactComplaintCustomer(req, res) {
     try {
       const result = await SuperAdminService.contactComplaintCustomer(
+        req.params.id,
+        req.body || {},
+        req.user || null
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async updateComplaintResolutionPlan(req, res) {
+    try {
+      const result = await SuperAdminService.updateComplaintResolutionPlan(
+        req.params.id,
+        req.body || {},
+        req.user || null
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async contactComplaintSubcityAdmins(req, res) {
+    try {
+      const result = await SuperAdminService.contactComplaintSubcityAdmins(
+        req.params.id,
+        req.body || {},
+        req.user || null
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async contactComplaintSubcityOfficer(req, res) {
+    try {
+      const result = await SuperAdminService.contactComplaintSubcityOfficer(
         req.params.id,
         req.body || {},
         req.user || null

@@ -676,6 +676,16 @@ class _InfoModal extends StatelessWidget {
                             height: 1.55,
                           ),
                         ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Short Number: 906',
+                          style: TextStyle(
+                            color: _bodyColor,
+                            fontSize: 15,
+                            height: 1.55,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ] else ...<Widget>[
                         const Text(
                           'For further issues, contact your respective sub-city water offices.',

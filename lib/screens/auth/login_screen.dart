@@ -277,337 +277,331 @@ class _LoginScreenState extends State<LoginScreen> {
                     width: cardWidth,
                     height: cardHeight,
                     color: Colors.transparent,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(40, 200, 40, 40),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Header
-                            const Text(
-                              'Welcome Back!',
-                              style: TextStyle(
-                                fontSize: 30,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF111827),
-                                height: 1.2,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Sign in to your account to continue',
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: Color(0xFF6B7280),
-                                height: 1.4,
-                              ),
-                            ),
-                            const SizedBox(height: 36),
-                            Row(
-                              children: [
-                                GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _isPhone = false;
-                                    });
-                                  },
-                                  child: Text(
-                                    "Email",
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: !_isPhone
-                                          ? const Color(0xFF0072FF)
-                                          : const Color(0xFF6B7280),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: 25,
+                          top: 40,
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            onEnter: (_) => setState(() => _homeHover = true),
+                            onExit: (_) => setState(() => _homeHover = false),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: () {
+                                  Navigator.of(context).pushAndRemoveUntil(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const aqua_home.AquaConnectHome(),
                                     ),
+                                    (route) => false,
+                                  );
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _homeHover
+                                        ? const Color(0xFF0D47A1)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Icon(
+                                    Icons.home_outlined,
+                                    color: _homeHover
+                                        ? Colors.white
+                                        : const Color(0xFF1E88E5),
                                   ),
                                 ),
-
-                                const SizedBox(width: 6),
-
+                              ),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(40, 200, 40, 40),
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Header
                                 const Text(
-                                  "/",
+                                  'Welcome Back!',
                                   style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
+                                    fontSize: 30,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF111827),
+                                    height: 1.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Sign in to your account to continue',
+                                  style: TextStyle(
+                                    fontSize: 15,
                                     color: Color(0xFF6B7280),
+                                    height: 1.4,
                                   ),
                                 ),
-
-                                const SizedBox(width: 6),
-
-                                GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _isPhone = true;
-                                    });
-                                  },
-                                  child: Text(
-                                    "Phone",
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: _isPhone
-                                          ? const Color(0xFF0072FF)
-                                          : const Color(0xFF6B7280),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            _inputField(
-                              controller: _emailController,
-                              hint: _isPhone
-                                  ? 'Enter your phone number'
-                                  : 'Enter your email',
-                              prefixIcon: _isPhone
-                                  ? Icons.phone_outlined
-                                  : Icons.email_outlined,
-                              keyboardType: _isPhone
-                                  ? TextInputType.phone
-                                  : TextInputType.emailAddress,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Password
-                            _label('Password'),
-                            const SizedBox(height: 6),
-                            _passwordField(),
-                            const SizedBox(height: 10),
-
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
+                                const SizedBox(height: 36),
                                 Row(
                                   children: [
-                                    Checkbox(
-                                      value: _rememberMe,
-                                      onChanged: (value) {
+                                    GestureDetector(
+                                      onTap: () {
                                         setState(() {
-                                          _rememberMe = value!;
+                                          _isPhone = false;
                                         });
                                       },
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(4),
+                                      child: Text(
+                                        "Email",
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: !_isPhone
+                                              ? const Color(0xFF0072FF)
+                                              : const Color(0xFF6B7280),
+                                        ),
                                       ),
-                                      activeColor: const Color(0xFF0072FF),
                                     ),
+
+                                    const SizedBox(width: 6),
+
                                     const Text(
-                                      'Remember me',
+                                      "/",
                                       style: TextStyle(
-                                        fontSize: 14,
-                                        color: Color(0xFF4B5563),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF6B7280),
+                                      ),
+                                    ),
+
+                                    const SizedBox(width: 6),
+
+                                    GestureDetector(
+                                      onTap: () {
+                                        setState(() {
+                                          _isPhone = true;
+                                        });
+                                      },
+                                      child: Text(
+                                        "Phone",
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: _isPhone
+                                              ? const Color(0xFF0072FF)
+                                              : const Color(0xFF6B7280),
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
-                                MouseRegion(
-                                  onEnter: (_) {
-                                    setState(() => _forgotHover = true);
-                                  },
-                                  onExit: (_) {
-                                    setState(() => _forgotHover = false);
-                                  },
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              const ForgotPasswordPage(),
-                                        ),
-                                      );
-                                    },
-                                    child: AnimatedDefaultTextStyle(
-                                      duration: const Duration(
-                                        milliseconds: 200,
-                                      ),
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: _forgotHover
-                                            ? const Color(0xFF003A8F)
-                                            : const Color(0xFF3B82F6),
-                                        decoration: _forgotHover
-                                            ? TextDecoration.underline
-                                            : TextDecoration.none,
-                                      ),
-                                      child: const Text('Forgot Password?'),
-                                    ),
-                                  ),
+                                const SizedBox(height: 6),
+                                _inputField(
+                                  controller: _emailController,
+                                  hint: _isPhone
+                                      ? 'Enter your phone number'
+                                      : 'Enter your email',
+                                  prefixIcon: _isPhone
+                                      ? Icons.phone_outlined
+                                      : Icons.email_outlined,
+                                  keyboardType: _isPhone
+                                      ? TextInputType.phone
+                                      : TextInputType.emailAddress,
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 28),
+                                const SizedBox(height: 16),
 
-                            // Sign In button
-                            _gradientButton('Sign In', () {
-                              _handleSignIn();
-                            }),
-                            const SizedBox(height: 28),
+                                // Password
+                                _label('Password'),
+                                const SizedBox(height: 6),
+                                _passwordField(),
+                                const SizedBox(height: 10),
 
-                            // Divider
-                            _orDivider(),
-                            const SizedBox(height: 20),
-
-                            // Social buttons
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _socialButton(
-                                    label: 'Google',
-                                    icon: _googleMulticolorIcon(),
-                                    onTap: _handleGoogleSignIn,
-                                  ),
-                                ),
-                                if (AuthService.facebookLoginEnabled) ...[
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: _socialButton(
-                                      label: 'Facebook',
-                                      icon: const FaIcon(
-                                        FontAwesomeIcons.facebook,
-                                        size: 18,
-                                        color: Color(0xFF1877F2),
-                                      ),
-                                      onTap: _handleFacebookSignIn,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-
-                            const Spacer(),
-
-                            // Sign up
-                            Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Text(
-                                    "Don't have an account? ",
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Color(0xFF6B7280),
-                                    ),
-                                  ),
-                                  MouseRegion(
-                                    onEnter: (_) =>
-                                        setState(() => _signupHover = true),
-                                    onExit: (_) =>
-                                        setState(() => _signupHover = false),
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTapDown: (_) {
-                                        setState(() => _signupPressed = true);
-                                      },
-                                      onTapCancel: () {
-                                        setState(() => _signupPressed = false);
-                                      },
-                                      onTapUp: (_) {
-                                        setState(() => _signupPressed = false);
-                                      },
-                                      onTap: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const CreateAccountScreen(),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Checkbox(
+                                          value: _rememberMe,
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _rememberMe = value!;
+                                            });
+                                          },
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
                                           ),
-                                        );
-                                      },
-                                      child: AnimatedDefaultTextStyle(
-                                        duration: const Duration(
-                                          milliseconds: 200,
+                                          activeColor: const Color(0xFF0072FF),
                                         ),
+                                        const Text(
+                                          'Remember me',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Color(0xFF4B5563),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    MouseRegion(
+                                      onEnter: (_) {
+                                        setState(() => _forgotHover = true);
+                                      },
+                                      onExit: (_) {
+                                        setState(() => _forgotHover = false);
+                                      },
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) =>
+                                                  const ForgotPasswordPage(),
+                                            ),
+                                          );
+                                        },
+                                        child: AnimatedDefaultTextStyle(
+                                          duration: const Duration(
+                                            milliseconds: 200,
+                                          ),
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: _forgotHover
+                                                ? const Color(0xFF003A8F)
+                                                : const Color(0xFF3B82F6),
+                                            decoration: _forgotHover
+                                                ? TextDecoration.underline
+                                                : TextDecoration.none,
+                                          ),
+                                          child: const Text('Forgot Password?'),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 28),
+
+                                // Sign In button
+                                _gradientButton('Sign In', () {
+                                  _handleSignIn();
+                                }),
+                                const SizedBox(height: 28),
+
+                                // Divider
+                                _orDivider(),
+                                const SizedBox(height: 20),
+
+                                // Social buttons
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _socialButton(
+                                        label: 'Google',
+                                        icon: _googleMulticolorIcon(),
+                                        onTap: _handleGoogleSignIn,
+                                      ),
+                                    ),
+                                    if (AuthService.facebookLoginEnabled) ...[
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _socialButton(
+                                          label: 'Facebook',
+                                          icon: const FaIcon(
+                                            FontAwesomeIcons.facebook,
+                                            size: 18,
+                                            color: Color(0xFF1877F2),
+                                          ),
+                                          onTap: _handleFacebookSignIn,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+
+                                const Spacer(),
+
+                                // Sign up
+                                Center(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Text(
+                                        "Don't have an account? ",
                                         style: TextStyle(
                                           fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color:
-                                              (_signupHover || _signupPressed)
-                                              ? const Color(0xFF003A8F)
-                                              : const Color(0xFF3B82F6),
-                                          decoration:
-                                              (_signupHover || _signupPressed)
-                                              ? TextDecoration.underline
-                                              : TextDecoration.none,
+                                          color: Color(0xFF6B7280),
                                         ),
-                                        child: const Text('Sign Up'),
                                       ),
-                                    ),
+                                      MouseRegion(
+                                        onEnter: (_) =>
+                                            setState(() => _signupHover = true),
+                                        onExit: (_) => setState(
+                                          () => _signupHover = false,
+                                        ),
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTapDown: (_) {
+                                            setState(
+                                              () => _signupPressed = true,
+                                            );
+                                          },
+                                          onTapCancel: () {
+                                            setState(
+                                              () => _signupPressed = false,
+                                            );
+                                          },
+                                          onTapUp: (_) {
+                                            setState(
+                                              () => _signupPressed = false,
+                                            );
+                                          },
+                                          onTap: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const CreateAccountScreen(),
+                                              ),
+                                            );
+                                          },
+                                          child: AnimatedDefaultTextStyle(
+                                            duration: const Duration(
+                                              milliseconds: 200,
+                                            ),
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                              color:
+                                                  (_signupHover ||
+                                                      _signupPressed)
+                                                  ? const Color(0xFF003A8F)
+                                                  : const Color(0xFF3B82F6),
+                                              decoration:
+                                                  (_signupHover ||
+                                                      _signupPressed)
+                                                  ? TextDecoration.underline
+                                                  : TextDecoration.none,
+                                            ),
+                                            child: const Text('Sign Up'),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 12,
-            left: 12,
-            child: SafeArea(
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                onEnter: (_) => setState(() => _homeHover = true),
-                onExit: (_) => setState(() => _homeHover = false),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: () {
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(
-                          builder: (_) => const aqua_home.AquaConnectHome(),
-                        ),
-                        (route) => false,
-                      );
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _homeHover
-                            ? const Color(0xFF0D47A1)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.home_outlined,
-                            color: _homeHover
-                                ? Colors.white
-                                : const Color(0xFF1E88E5),
                           ),
-                          AnimatedSize(
-                            duration: const Duration(milliseconds: 180),
-                            curve: Curves.easeOut,
-                            child: _homeHover
-                                ? const Padding(
-                                    padding: EdgeInsets.only(left: 6),
-                                    child: Text(
-                                      'Home',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
