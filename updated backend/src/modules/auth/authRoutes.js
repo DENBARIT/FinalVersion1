@@ -19,6 +19,7 @@ router.post('/complaints', authenticate, AuthController.createComplaint);
 router.get('/ocr-window-status', authenticate, AuthController.getOcrWindowStatus);
 router.get('/announcements', authenticate, AuthController.getAnnouncements);
 router.get('/schedule-notifications', authenticate, AuthController.getScheduleNotifications);
+router.get('/notifications', authenticate, AuthController.getNotifications);
 router.get('/schedules', authenticate, AuthController.getSchedules);
 router.patch('/announcements/:id/read', authenticate, AuthController.markAnnouncementAsRead);
 router.put('/change-password', authenticate, AuthController.changePassword);

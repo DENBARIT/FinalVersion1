@@ -274,6 +274,7 @@ const toComplaintView = (complaint) => ({
   id: complaint.id,
   title: toPlainText(complaint.title),
   description: toPlainText(complaint.description),
+  category: complaint.category || 'OTHER',
   status: DB_TO_UI_COMPLAINT_STATUS[complaint.status] || complaint.status,
   createdAt: complaint.createdAt,
   updatedAt: complaint.updatedAt,
@@ -333,11 +334,19 @@ const formatDateForEmail = (value) => {
 
 const buildProgressEmail = ({ complaint, updatedByName }) => {
   const complaintSentDate = formatDateForEmail(complaint.createdAt);
+  const complaintType =
+    String(complaint.category || '')
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/(^|\s)\S/g, (value) => value.toUpperCase()) || 'Other';
+  const submittedByName = complaint.customer?.fullName || 'Unknown customer';
   const subject = `AquaConnect Complaint Update: ${
     toPlainText(complaint.title) || 'Your Complaint'
   }`;
 
-  const text = `We have received the stated complaint. Thanks for that.\n\nComplaint submitted date: ${complaintSentDate}\nCurrent status: In Progress\n\nWe are in progress to solve the problem.\n\nUpdated by: ${
+  const text = `We have received your complaint and it is now in progress. Thank you for your submission.\n\nComplaint title: ${
+    toPlainText(complaint.title) || 'Your Complaint'
+  }\nComplaint type: ${complaintType}\nSubmitted by: ${submittedByName}\nSubmitted date: ${complaintSentDate}\nCurrent status: In Progress\n\nWe are in progress to solve the problem.\n\nUpdated by: ${
     updatedByName || 'Woreda Complaint Team'
   }`;
 
@@ -350,8 +359,13 @@ const buildProgressEmail = ({ complaint, updatedByName }) => {
           <h2 style="margin: 8px 0 0 0; color: #17324d; font-size: 22px; line-height: 1.3;">Complaint Status: In Progress</h2>
         </div>
         <div style="padding: 20px 24px 24px 24px;">
-          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">We have received the stated complaint, thanks for that.</p>
-          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Complaint submitted date:</strong> ${complaintSentDate}</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">We have received your complaint and it is now in progress. Thank you for your submission.</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Complaint title:</strong> ${
+            toPlainText(complaint.title) || 'Your Complaint'
+          }</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Complaint type:</strong> ${complaintType}</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Submitted by:</strong> ${submittedByName}</p>
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;"><strong>Submitted date:</strong> ${complaintSentDate}</p>
           <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">We are in progress to solve the problem.</p>
           <p style="margin: 0; color: #5c6d7f; font-size: 12px;">Updated by: ${
             updatedByName || 'Woreda Complaint Team'
@@ -1183,12 +1197,13 @@ class SuperAdminService {
     return rows.map(toOfficerView);
   }
 
-  static async getComplaints({ status, assignedToId, woredaId, subCityId }) {
+  static async getComplaints({ status, assignedToId, woredaId, subCityId, category }) {
     const where = {
       deletedAt: null,
       ...(assignedToId ? { assignedToId } : {}),
       ...(woredaId ? { woredaId } : {}),
       ...(subCityId ? { subCityId } : {}),
+      ...(category ? { category } : {}),
     };
 
     const mappedStatus = buildComplaintStatusFilter(status);
@@ -1344,14 +1359,22 @@ class SuperAdminService {
               am: 'የቅሬታ ማሻሻያ: በሂደት ላይ',
             },
             message: {
-              en: `We have received your complaint submitted on ${formatDateForEmail(
+              en: `We have received your ${String(complaint.category || 'OTHER')
+                .replace(/_/g, ' ')
+                .toLowerCase()} complaint submitted on ${formatDateForEmail(
                 complaint.createdAt
-              )}, and we are in progress to solve the problem.`,
+              )} by ${
+                complaint.customer?.fullName || 'you'
+              }, and we are in progress to solve the problem.`,
               am: 'ቅሬታዎን ተቀብለናል፣ እና ችግኙን ለመፍታት በሂደት ላይ ነን።',
             },
             data: {
               complaintId: complaint.id,
               status: 'IN_PROGRESS',
+              complaintCategory: complaint.category,
+              complaintTitle: toPlainText(complaint.title),
+              submittedBy: complaint.customer?.fullName || null,
+              submittedDate: complaint.createdAt,
             },
             isSent: false,
             sentVia: ['IN_APP'],

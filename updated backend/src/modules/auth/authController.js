@@ -256,6 +256,19 @@ class AuthController {
     }
   }
 
+  async getNotifications(req, res) {
+    try {
+      const userId = req.user.id;
+      const result = await AuthService.getNotificationsForUser(userId);
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
   async getSchedules(req, res) {
     try {
       const userId = req.user.id;

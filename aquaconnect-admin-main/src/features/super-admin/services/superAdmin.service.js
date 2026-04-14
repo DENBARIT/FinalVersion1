@@ -232,13 +232,14 @@ export const superAdminService = {
   // Complaints
   getComplaints: ({
     status = "",
+    category = "",
     assignedToId = "",
     woredaId = "",
     subCityId = "",
   } = {}) =>
     apiRequest("/super-admin/complaints", {
       ...withAuth,
-      query: { status, assignedToId, woredaId, subCityId },
+      query: { status, category, assignedToId, woredaId, subCityId },
     }),
   updateComplaintStatus: (id, status) =>
     apiRequest(`/super-admin/complaints/${id}/status`, {
@@ -325,6 +326,10 @@ export const superAdminService = {
     }),
   getUserScheduleNotifications: () =>
     apiRequest("/auth/schedule-notifications", {
+      ...withAuth,
+    }),
+  getUserNotifications: () =>
+    apiRequest("/auth/notifications", {
       ...withAuth,
     }),
   createAnnouncement: (body) =>

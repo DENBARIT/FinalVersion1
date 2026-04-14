@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { useSidebar } from "@/store/sidebarStore";
-import { apiRequest } from "@/services/apiClient";
+import { apiRequest, getJwtPayload } from "@/services/apiClient";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
 import { requestResetOtp } from "@/features/auth/services/auth.service";
@@ -27,6 +27,8 @@ export default function Sidebar({
     message: "",
   });
   const [changePasswordLoading, setChangePasswordLoading] = useState(false);
+  const [newAssignedComplaintsCount, setNewAssignedComplaintsCount] =
+    useState(0);
 
   const {
     register,
@@ -67,6 +69,53 @@ export default function Sidebar({
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const payload = getJwtPayload() || {};
+    const role = String(payload?.role || "").toUpperCase();
+    const isComplaintOfficer =
+      role === "SUBCITY_COMPLAINT_OFFICER" ||
+      role === "WOREDA_COMPLAINT_OFFICER";
+
+    if (!isComplaintOfficer || !payload?.userId) {
+      setNewAssignedComplaintsCount(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadNewAssignedCount = async () => {
+      try {
+        const rows = await apiRequest("/super-admin/complaints", {
+          useAuth: true,
+          query: {
+            assignedToId: payload.userId,
+            status: "OPEN",
+            subCityId: payload?.subCityId || "",
+            woredaId: payload?.woredaId || "",
+          },
+        });
+
+        if (!cancelled) {
+          setNewAssignedComplaintsCount(Array.isArray(rows) ? rows.length : 0);
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          setNewAssignedComplaintsCount(0);
+        }
+      }
+    };
+
+    void loadNewAssignedCount();
+    const timerId = setInterval(() => {
+      void loadNewAssignedCount();
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+    };
+  }, [pathname]);
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
@@ -167,6 +216,9 @@ export default function Sidebar({
             )}
             {items.map(({ label, icon, href, action, kind }) => {
               const active = href ? pathname === href : false;
+              const showMyAssignmentsBadge =
+                href === "/complaint/complaints/assigned" &&
+                newAssignedComplaintsCount > 0;
               const itemClass = `flex items-center gap-2 px-3 py-2 mx-2 rounded-lg transition-all text-xs mb-0.5 ${active ? "bg-[rgba(29,158,117,0.12)] text-[#1D9E75]" : "text-[rgba(232,244,240,0.45)] hover:bg-[rgba(29,158,117,0.07)] hover:text-[#e8f4f0]"}`;
 
               if (kind === "group") {
@@ -225,6 +277,11 @@ export default function Sidebar({
                       className={`whitespace-nowrap font-medium ${active ? "text-[#1D9E75]" : ""}`}
                     >
                       {label}
+                    </span>
+                  )}
+                  {showMyAssignmentsBadge && (
+                    <span className="ml-auto inline-flex min-w-5 h-5 px-1.5 items-center justify-center rounded-full bg-[#E24B4A] text-white text-[10px] font-bold">
+                      {newAssignedComplaintsCount}
                     </span>
                   )}
                 </Link>

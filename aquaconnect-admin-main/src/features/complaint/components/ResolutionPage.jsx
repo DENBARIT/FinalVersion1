@@ -5,7 +5,7 @@ import { getJwtPayload } from "@/services/apiClient";
 import { useComplaints } from "@/features/complaint/hooks/useComplaints";
 import { superAdminService } from "@/features/super-admin/services/superAdmin.service";
 
-const ACTIVE_STATUSES = ["OPEN", "IN_PROGRESS", "ESCALATED"];
+const ACTIVE_STATUSES = ["IN_PROGRESS", "ESCALATED"];
 
 export default function ResolutionPage() {
   const payload = getJwtPayload() || {};

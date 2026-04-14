@@ -296,6 +296,10 @@ class AuthService {
   }
 
   async getScheduleNotificationsForUser(userId) {
+    return this.getNotificationsForUser(userId, ['SCHEDULE_CHANGE']);
+  }
+
+  async getNotificationsForUser(userId, types = []) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -312,7 +316,7 @@ class AuthService {
     const notifications = await prisma.notification.findMany({
       where: {
         userId,
-        type: 'SCHEDULE_CHANGE',
+        ...(Array.isArray(types) && types.length ? { type: { in: types } } : {}),
       },
       orderBy: {
         createdAt: 'desc',

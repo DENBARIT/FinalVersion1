@@ -29,7 +29,7 @@ export default function WoredaNotificationPage() {
       try {
         const [announcementFeed, scheduleFeed] = await Promise.all([
           superAdminService.getUserAnnouncements(),
-          superAdminService.getUserScheduleNotifications(),
+          superAdminService.getUserNotifications(),
         ]);
 
         const announcements = Array.isArray(announcementFeed?.items)
@@ -57,7 +57,7 @@ export default function WoredaNotificationPage() {
             title: item.title || "Notification",
             message: item.message || "",
             createdAt: item.createdAt,
-            source: "SCHEDULE",
+            source: item.type === "COMPLAINT_UPDATE" ? "COMPLAINT" : "SCHEDULE",
           })),
         ].sort(
           (a, b) =>
@@ -104,7 +104,9 @@ export default function WoredaNotificationPage() {
               <p className="text-[10px] uppercase tracking-wide text-[rgba(29,158,117,0.8)] mt-1">
                 {n.source === "ANNOUNCEMENT"
                   ? "Woreda Announcement"
-                  : "Woreda Notification"}
+                  : n.source === "COMPLAINT"
+                    ? "Complaint Update"
+                    : "Woreda Notification"}
               </p>
               <p className="text-xs text-[rgba(232,244,240,0.55)] mt-1 whitespace-pre-wrap">
                 {isExpanded ? fullMessage : compactMessage}
