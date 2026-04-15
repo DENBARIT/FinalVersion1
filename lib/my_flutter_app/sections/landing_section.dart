@@ -31,90 +31,374 @@ class _LandingSection extends StatelessWidget {
 
     return SizedBox(
       height: effectiveSectionHeight,
-      child: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: isCompact ? 20 : 34,
-            vertical: isShortLandscape ? 12 : 18,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              if (showTopBar) _TopBar(onSelected: onMenuSelected),
-              Expanded(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 920),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.max,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      Expanded(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(isCompact ? 28 : 34),
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            const Positioned.fill(
+              child: Image(
+                image: AssetImage(_landingBackgroundAsset),
+                fit: BoxFit.cover,
+                opacity: AlwaysStoppedAnimation<double>(0.72),
+              ),
+            ),
+            const Positioned.fill(
+              child: Image(
+                image: AssetImage(_landingBackgroundAsset),
+                fit: BoxFit.cover,
+              ),
+            ),
+            const Positioned.fill(
+              child: IgnorePointer(child: _LandingAmbientBubbles()),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isCompact ? 20 : 34,
+                  vertical: isShortLandscape ? 12 : 18,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    if (showTopBar)
+                      _TopBar(onSelected: onMenuSelected)
+                    else
+                      const SizedBox(height: 48),
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 920),
                         child: Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: const <Widget>[
-                            Text(
-                              'Digital water services for modern utilities',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Color(0xFFE8F9FF),
-                                fontSize: 24,
-                                fontWeight: FontWeight.w600,
-                                fontStyle: FontStyle.italic,
-                                letterSpacing: 0.8,
-                                fontFamily: 'Georgia',
-                                shadows: <Shadow>[
-                                  Shadow(
-                                    color: Color(0xFF72E9FF),
-                                    blurRadius: 20,
-                                    offset: Offset(0, 4),
+                          mainAxisSize: MainAxisSize.max,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceEvenly,
+                                children: <Widget>[
+                                  const Text(
+                                    'Digital water services for modern utilities',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Color(0xFFE8F9FF),
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w600,
+                                      fontStyle: FontStyle.italic,
+                                      letterSpacing: 0.8,
+                                      fontFamily: 'Georgia',
+                                      shadows: <Shadow>[
+                                        Shadow(
+                                          color: Color(0xFF72E9FF),
+                                          blurRadius: 20,
+                                          offset: Offset(0, 4),
+                                        ),
+                                        Shadow(
+                                          color: Color(0xAA0A4A72),
+                                          blurRadius: 16,
+                                          offset: Offset(0, 8),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  Shadow(
-                                    color: Color(0xAA0A4A72),
-                                    blurRadius: 16,
-                                    offset: Offset(0, 8),
+                                  const _CenterSplashGlow(
+                                    child: _PulseHeroTitle(),
                                   ),
+                                  const _RotatingServiceText(),
                                 ],
                               ),
                             ),
-                            _PulseHeroTitle(),
-                            _RotatingServiceText(),
+                            SizedBox(height: isCompact ? 14 : 20),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                Expanded(
+                                  child: _LandingActionButton(
+                                    label: 'Get Started!',
+                                    onTap: () {
+                                      Navigator.of(
+                                        context,
+                                      ).pushNamed(_signUpRoute);
+                                    },
+                                  ),
+                                ),
+                                SizedBox(width: isCompact ? 18 : 28),
+                                Expanded(
+                                  child: _LandingActionButton(
+                                    label: 'Sign In',
+                                    onTap: () {
+                                      Navigator.of(
+                                        context,
+                                      ).pushNamed(_signInRoute);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: isCompact ? 4 : 10),
                           ],
                         ),
                       ),
-                      SizedBox(height: isCompact ? 14 : 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          Expanded(
-                            child: _LandingActionButton(
-                              label: 'Get Started!',
-                              onTap: () {
-                                Navigator.of(context).pushNamed(_signUpRoute);
-                              },
-                            ),
-                          ),
-                          SizedBox(width: isCompact ? 18 : 28),
-                          Expanded(
-                            child: _LandingActionButton(
-                              label: 'Sign In',
-                              onTap: () {
-                                Navigator.of(context).pushNamed(_signInRoute);
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: isCompact ? 4 : 10),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
+}
+
+class _CenterSplashGlow extends StatefulWidget {
+  const _CenterSplashGlow({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_CenterSplashGlow> createState() => _CenterSplashGlowState();
+}
+
+class _CenterSplashGlowState extends State<_CenterSplashGlow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2800),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isMobile = MediaQuery.sizeOf(context).width < 760;
+
+    if (!isMobile) {
+      return SizedBox(
+        width: 340,
+        height: 340,
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            Container(
+              width: 320,
+              height: 320,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: <Color>[
+                    const Color(0xFF65D8FF).withValues(alpha: 0.34),
+                    const Color(0xFF65D8FF).withValues(alpha: 0.12),
+                    Colors.transparent,
+                  ],
+                  stops: const <double>[0.18, 0.62, 1.0],
+                ),
+              ),
+            ),
+            Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFFB5F4FF).withValues(alpha: 0.42),
+                  width: 2.4,
+                ),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: const Color(0xFF4BD4FF).withValues(alpha: 0.36),
+                    blurRadius: 42,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+            ),
+            widget.child,
+          ],
+        ),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (BuildContext context, Widget? child) {
+        final double t = Curves.easeInOut.transform(_controller.value);
+        final double bloom = 0.92 + (0.14 * t);
+        final double innerOpacity = 0.22 + (0.14 * t);
+        final double outerOpacity = 0.24 + (0.18 * t);
+        final double shadowOpacity = 0.22 + (0.28 * t);
+
+        return SizedBox(
+          width: 340,
+          height: 340,
+          child: Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              Transform.scale(
+                scale: bloom,
+                child: Container(
+                  width: 320,
+                  height: 320,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: <Color>[
+                        const Color(0xFF6FE3FF).withValues(alpha: outerOpacity),
+                        const Color(0xFF65D8FF).withValues(alpha: innerOpacity),
+                        Colors.transparent,
+                      ],
+                      stops: const <double>[0.16, 0.58, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              Transform.scale(
+                scale: 0.96 + (0.05 * t),
+                child: Container(
+                  width: 280,
+                  height: 280,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(
+                        0xFFB5F4FF,
+                      ).withValues(alpha: 0.34 + (0.16 * t)),
+                      width: 2.4,
+                    ),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(
+                        color: const Color(
+                          0xFF4BD4FF,
+                        ).withValues(alpha: shadowOpacity),
+                        blurRadius: 34 + (18 * t),
+                        spreadRadius: 2 + (4 * t),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              child ?? widget.child,
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LandingAmbientBubbles extends StatefulWidget {
+  const _LandingAmbientBubbles();
+
+  @override
+  State<_LandingAmbientBubbles> createState() => _LandingAmbientBubblesState();
+}
+
+class _LandingAmbientBubblesState extends State<_LandingAmbientBubbles>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  static const List<_LandingBubbleSpec> _specs = <_LandingBubbleSpec>[
+    _LandingBubbleSpec(x: 0.08, y: 0.14, radius: 10, drift: 11, speed: 0.85),
+    _LandingBubbleSpec(x: 0.16, y: 0.28, radius: 7, drift: 9, speed: 0.72),
+    _LandingBubbleSpec(x: 0.84, y: 0.18, radius: 8, drift: 10, speed: 0.68),
+    _LandingBubbleSpec(x: 0.90, y: 0.34, radius: 11, drift: 13, speed: 0.78),
+    _LandingBubbleSpec(x: 0.10, y: 0.54, radius: 12, drift: 14, speed: 0.82),
+    _LandingBubbleSpec(x: 0.88, y: 0.58, radius: 9, drift: 10, speed: 0.75),
+    _LandingBubbleSpec(x: 0.28, y: 0.82, radius: 8, drift: 9, speed: 0.69),
+    _LandingBubbleSpec(x: 0.72, y: 0.86, radius: 10, drift: 12, speed: 0.8),
+    _LandingBubbleSpec(x: 0.50, y: 0.12, radius: 6, drift: 8, speed: 0.7),
+    _LandingBubbleSpec(x: 0.60, y: 0.70, radius: 7, drift: 9, speed: 0.73),
+    _LandingBubbleSpec(x: 0.36, y: 0.22, radius: 5, drift: 8, speed: 0.66),
+    _LandingBubbleSpec(x: 0.42, y: 0.93, radius: 12, drift: 15, speed: 0.84),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 16),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return AnimatedBuilder(
+          animation: _controller,
+          builder: (BuildContext context, Widget? child) {
+            return Stack(
+              children: _specs.asMap().entries.map((entry) {
+                final int index = entry.key;
+                final _LandingBubbleSpec spec = entry.value;
+                final double phase = (_controller.value + (index * 0.09)) % 1;
+                final double dy = math.sin(phase * math.pi * 2) * spec.drift;
+                final double opacity = 0.10 + (0.11 * spec.speed);
+
+                return Positioned(
+                  left: constraints.maxWidth * spec.x,
+                  top: (constraints.maxHeight * spec.y) + dy,
+                  child: Container(
+                    width: spec.radius * 2,
+                    height: spec.radius * 2,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: <Color>[
+                          Colors.white.withValues(alpha: opacity),
+                          const Color(
+                            0xFF8EDBFF,
+                          ).withValues(alpha: opacity * 0.52),
+                          Colors.transparent,
+                        ],
+                      ),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: opacity * 0.55),
+                        width: 0.9,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _LandingBubbleSpec {
+  const _LandingBubbleSpec({
+    required this.x,
+    required this.y,
+    required this.radius,
+    required this.drift,
+    required this.speed,
+  });
+
+  final double x;
+  final double y;
+  final double radius;
+  final double drift;
+  final double speed;
 }
 
 class _TopBar extends StatelessWidget {

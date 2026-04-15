@@ -344,90 +344,89 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                               LayoutBuilder(
                                 builder: (context, constraints) {
                                   double totalWidth = constraints.maxWidth;
-                                  double spacing = 10;
+                                  const double spacing = 8;
+                                  final double boxWidth =
+                                      (totalWidth - (spacing * 5)) / 6;
 
-                                  double boxWidth =
-                                      ((totalWidth - (spacing * 5)) / 6).clamp(
-                                        42.0,
-                                        56.0,
-                                      );
-
-                                  return Wrap(
-                                    spacing: spacing,
-                                    runSpacing: 10,
-                                    alignment: WrapAlignment.center,
+                                  return Row(
                                     children: List.generate(6, (index) {
-                                      return SizedBox(
-                                        width: boxWidth,
-                                        height: 56,
-                                        child: TextField(
-                                          controller: _controllers[index],
-                                          focusNode: _focusNodes[index],
-                                          textAlign: TextAlign.center,
-                                          textAlignVertical:
-                                              TextAlignVertical.center,
-                                          keyboardType: TextInputType.number,
-                                          maxLength: 1,
-                                          style: const TextStyle(
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF111827),
-                                          ),
-                                          cursorColor: Color(0xFF111827),
-                                          decoration: InputDecoration(
-                                            counterText: '',
-                                            filled: true,
-                                            fillColor: Colors.white,
-                                            contentPadding: EdgeInsets.zero,
-                                            enabledBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              borderSide: const BorderSide(
-                                                color: Color(0xFFD1D5DB),
-                                                width: 2,
+                                      return Padding(
+                                        padding: EdgeInsets.only(
+                                          right: index == 5 ? 0 : spacing,
+                                        ),
+                                        child: SizedBox(
+                                          width: boxWidth,
+                                          height: 56,
+                                          child: TextField(
+                                            controller: _controllers[index],
+                                            focusNode: _focusNodes[index],
+                                            textAlign: TextAlign.center,
+                                            textAlignVertical:
+                                                TextAlignVertical.center,
+                                            keyboardType: TextInputType.number,
+                                            maxLength: 1,
+                                            style: const TextStyle(
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF111827),
+                                            ),
+                                            cursorColor: Color(0xFF111827),
+                                            decoration: InputDecoration(
+                                              counterText: '',
+                                              filled: true,
+                                              fillColor: Colors.white,
+                                              contentPadding: EdgeInsets.zero,
+                                              enabledBorder: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                borderSide: const BorderSide(
+                                                  color: Color(0xFFD1D5DB),
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              focusedBorder: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                borderSide: const BorderSide(
+                                                  color: Color(0xFF3B82F6),
+                                                  width: 2,
+                                                ),
                                               ),
                                             ),
-                                            focusedBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              borderSide: const BorderSide(
-                                                color: Color(0xFF3B82F6),
-                                                width: 2,
-                                              ),
-                                            ),
-                                          ),
-                                          inputFormatters: [
-                                            FilteringTextInputFormatter
-                                                .digitsOnly,
-                                          ],
-                                          onChanged: (value) {
-                                            if (value.length > 1) {
-                                              final pasted = value.replaceAll(
-                                                RegExp(r'\D'),
-                                                '',
-                                              );
+                                            inputFormatters: [
+                                              FilteringTextInputFormatter
+                                                  .digitsOnly,
+                                            ],
+                                            onChanged: (value) {
+                                              if (value.length > 1) {
+                                                final pasted = value.replaceAll(
+                                                  RegExp(r'\D'),
+                                                  '',
+                                                );
 
-                                              if (pasted.length == 6) {
-                                                for (int i = 0; i < 6; i++) {
-                                                  _controllers[i].text =
-                                                      pasted[i];
+                                                if (pasted.length == 6) {
+                                                  for (int i = 0; i < 6; i++) {
+                                                    _controllers[i].text =
+                                                        pasted[i];
+                                                  }
+
+                                                  _focusNodes[5].unfocus();
                                                 }
-
-                                                _focusNodes[5].unfocus();
+                                                return;
                                               }
-                                              return;
-                                            }
 
-                                            if (value.isNotEmpty && index < 5) {
-                                              _focusNodes[index + 1]
-                                                  .requestFocus();
-                                            }
+                                              if (value.isNotEmpty &&
+                                                  index < 5) {
+                                                _focusNodes[index + 1]
+                                                    .requestFocus();
+                                              }
 
-                                            if (value.isEmpty && index > 0) {
-                                              _focusNodes[index - 1]
-                                                  .requestFocus();
-                                            }
-                                          },
+                                              if (value.isEmpty && index > 0) {
+                                                _focusNodes[index - 1]
+                                                    .requestFocus();
+                                              }
+                                            },
+                                          ),
                                         ),
                                       );
                                     }),

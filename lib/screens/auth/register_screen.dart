@@ -237,6 +237,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
               : null,
           obscureText: obscure,
           keyboardType: keyboardType,
+          style: GoogleFonts.syne(
+            color: Colors.black,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+          cursorColor: Colors.black,
           onChanged: onChanged,
           decoration: InputDecoration(
             hintText: hint,
@@ -684,11 +690,21 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   const SizedBox(height: 6),
 
                   DropdownSearch<String>(
-                    popupProps: const PopupProps.menu(
+                    popupProps: PopupProps.menu(
                       showSearchBox: true,
-                      searchFieldProps: TextFieldProps(
+                      searchFieldProps: const TextFieldProps(
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        cursorColor: Colors.black,
                         decoration: InputDecoration(
                           hintText: "Search Sub City",
+                          hintStyle: TextStyle(
+                            color: Color(0xFF6B7280),
+                            fontSize: 14,
+                          ),
                           prefixIcon: Icon(Icons.search),
                         ),
                       ),
@@ -698,6 +714,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     dropdownDecoratorProps: DropDownDecoratorProps(
                       dropdownSearchDecoration: InputDecoration(
                         hintText: "Select Sub City",
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF6B7280),
+                          fontSize: 14,
+                        ),
                         filled: true,
                         fillColor: const Color(0xffE6EEF5),
                         border: OutlineInputBorder(
@@ -713,6 +733,18 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         ),
                       ),
                     ),
+                    dropdownBuilder: (context, selectedItem) {
+                      return Text(
+                        selectedItem ?? "Select Sub City",
+                        style: TextStyle(
+                          color: selectedItem == null
+                              ? const Color(0xFF6B7280)
+                              : Colors.black,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      );
+                    },
                     onChanged: (value) async {
                       if (value == null) {
                         return;
@@ -746,11 +778,21 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   const SizedBox(height: 6),
 
                   DropdownSearch<String>(
-                    popupProps: const PopupProps.menu(
+                    popupProps: PopupProps.menu(
                       showSearchBox: true,
-                      searchFieldProps: TextFieldProps(
+                      searchFieldProps: const TextFieldProps(
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        cursorColor: Colors.black,
                         decoration: InputDecoration(
                           hintText: "Search Woreda",
+                          hintStyle: TextStyle(
+                            color: Color(0xFF6B7280),
+                            fontSize: 14,
+                          ),
                           prefixIcon: Icon(Icons.search),
                         ),
                       ),
@@ -760,6 +802,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     dropdownDecoratorProps: DropDownDecoratorProps(
                       dropdownSearchDecoration: InputDecoration(
                         hintText: "Select Woreda",
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF6B7280),
+                          fontSize: 14,
+                        ),
                         filled: true,
                         fillColor: const Color(0xffE6EEF5),
                         border: OutlineInputBorder(
@@ -775,6 +821,18 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         ),
                       ),
                     ),
+                    dropdownBuilder: (context, selectedItem) {
+                      return Text(
+                        selectedItem ?? "Select Woreda",
+                        style: TextStyle(
+                          color: selectedItem == null
+                              ? const Color(0xFF6B7280)
+                              : Colors.black,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      );
+                    },
                     onChanged: (value) {
                       if (value == null) {
                         return;

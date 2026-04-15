@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -31,6 +32,7 @@ const Color _cardSurface = Color(0xEBFFFFFF);
 const Color _cardBorder = Color(0x331E88E5);
 const Color _cardBorderHover = Color(0xFF90CAF9);
 const Color _testimonialSectionBg = _appBackgroundBlue;
+const String _landingBackgroundAsset = 'lib/assets/images/auth_background.png';
 const String _signInRoute = '/signin';
 const String _signUpRoute = '/signup';
 
@@ -257,36 +259,10 @@ class _AquaConnectHomeState extends State<AquaConnectHome> {
     final bool isLandscape = viewport.width > viewport.height;
     final bool isShortLandscape = isLandscape && viewport.height < 560;
     final double sectionGap = isShortLandscape ? 32 : _uniformSectionGap;
-    final double appBarHeight = isShortLandscape ? 64 : 76;
+    const double appBarHeight = 0;
 
     return Scaffold(
       backgroundColor: _appBackgroundBlue,
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(appBarHeight),
-        child: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: isCompact ? 20 : 34,
-              vertical: isShortLandscape ? 8 : 10,
-            ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xCC0B2C44),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white24, width: 0.8),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                child: _TopBar(onSelected: _handleMenuSelection),
-              ),
-            ),
-          ),
-        ),
-      ),
       body: Stack(
         fit: StackFit.expand,
         children: <Widget>[
@@ -342,6 +318,21 @@ class _AquaConnectHomeState extends State<AquaConnectHome> {
                 ),
               );
             },
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isCompact ? 20 : 34,
+                  vertical: 18,
+                ),
+                child: _TopBar(onSelected: _handleMenuSelection),
+              ),
+            ),
           ),
         ],
       ),

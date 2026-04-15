@@ -294,11 +294,36 @@ class _PostSignInPageState extends State<PostSignInPage>
       _showOcrWindowBanner = !_hasSubmittedCurrentCycle;
     });
 
+    await _syncUsernameFromProfile();
+
     await _syncOcrWindowStatus();
     await _loadAnnouncements();
     await _loadScheduleNotifications();
     await _loadComplaintMessages();
     await _loadComplaintLocation();
+  }
+
+  Future<void> _syncUsernameFromProfile() async {
+    try {
+      final profile = await OwnershipChangeService.fetchOwnershipProfile();
+      final fullName = profile.fullName.trim();
+      if (fullName.isEmpty) {
+        return;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_usernameKey, fullName);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _username = fullName;
+      });
+    } catch (_) {
+      // Keep existing local username if profile sync fails.
+    }
   }
 
   Future<void> _loadComplaintLocation() async {

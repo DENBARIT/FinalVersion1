@@ -300,7 +300,13 @@ export default function ResolutionPage() {
         </div>
       )}
 
-      <div className="bg-[#05141f] border border-[rgba(29,158,117,0.08)] rounded-2xl overflow-hidden">
+      <div
+        className={`bg-[#05141f] overflow-hidden ${
+          isWoredaComplaintOfficer
+            ? ""
+            : "border border-[rgba(29,158,117,0.08)] rounded-2xl"
+        }`}
+      >
         <div className="px-6 py-4 border-b border-[rgba(29,158,117,0.08)]">
           <h2 className="font-syne font-bold text-sm tracking-tight">
             Resolution
@@ -311,7 +317,11 @@ export default function ResolutionPage() {
           </p>
         </div>
 
-        <div className="overflow-x-auto px-6 py-4">
+        <div
+          className={`overflow-x-auto py-4 ${
+            isWoredaComplaintOfficer ? "px-0" : "px-6"
+          }`}
+        >
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-[rgba(29,158,117,0.06)]">
