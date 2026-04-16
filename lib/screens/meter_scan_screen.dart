@@ -1,13 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
-import 'package:city_water_flutter/config/api_config.dart';
+import 'package:city_water_flutter/services/billing_service.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
 
@@ -29,6 +27,8 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
 
   final TextEditingController _meterNumberController = TextEditingController();
   final TextEditingController _meterReadingController = TextEditingController();
+  final TextEditingController _previousReadingController =
+      TextEditingController();
 
   bool _isCameraReady = false;
   bool _isProcessing = false;
@@ -37,11 +37,18 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
   bool _captured = false;
   bool _imageStreamRunning = false;
   bool _autoCaptureTriggered = false;
+  bool _isLoadingBilling = true;
 
   String _rawText = '';
   String _confidence = 'low';
   String? _cameraError;
   String? _qualityMessage;
+  String? _billingLoadError;
+  String _linkedMeterNumber = '';
+  String _customerName = '';
+  BillingCustomerType _selectedCustomerType = BillingCustomerType.residential;
+
+  BillingBill? _currentBill;
 
   Rect _scanRegion = const Rect.fromLTWH(0.16, 0.33, 0.68, 0.24);
   double _latestSharpness = 0;
@@ -56,6 +63,44 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
   void initState() {
     super.initState();
     _initializeCamera();
+    _loadBillingContext();
+  }
+
+  Future<void> _loadBillingContext() async {
+    try {
+      final profile = await BillingService.loadLinkedProfile();
+      final currentBill = await BillingService.loadCurrentBill();
+      final selectedCustomerType =
+          await BillingService.loadSelectedCustomerType();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _linkedMeterNumber = profile.meterNumber;
+        _customerName = profile.fullName;
+        _selectedCustomerType = selectedCustomerType;
+        _currentBill = currentBill;
+        _isLoadingBilling = false;
+        if (_meterNumberController.text.trim().isEmpty) {
+          _meterNumberController.text = profile.meterNumber;
+        }
+      });
+
+      if (currentBill != null) {
+        await _stopImageStream();
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _billingLoadError = error.toString().replaceFirst('Exception: ', '');
+        _isLoadingBilling = false;
+      });
+    }
   }
 
   Future<void> _initializeCamera() async {
@@ -105,7 +150,9 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
         _isCameraReady = true;
       });
 
-      _startImageStream();
+      if (_currentBill == null) {
+        _startImageStream();
+      }
     } catch (e) {
       if (!mounted) {
         return;
@@ -120,19 +167,26 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
   void dispose() {
     _meterNumberController.dispose();
     _meterReadingController.dispose();
+    _previousReadingController.dispose();
     _cameraController?.dispose();
     _textRecognizer.close();
     super.dispose();
   }
 
   Future<void> _startImageStream() async {
-    if (_cameraController == null || !_isCameraReady || _imageStreamRunning) {
+    if (_cameraController == null ||
+        !_isCameraReady ||
+        _imageStreamRunning ||
+        _currentBill != null) {
       return;
     }
 
     try {
       await _cameraController!.startImageStream((CameraImage image) {
-        if (!_autoCaptureEnabled || _captured || _isProcessing) {
+        if (!_autoCaptureEnabled ||
+            _captured ||
+            _isProcessing ||
+            _currentBill != null) {
           return;
         }
 
@@ -351,10 +405,11 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
       }
     }
 
-    final meterNumber = candidates.isNotEmpty ? candidates.first : '';
+    final meterNumber = candidates.isNotEmpty ? 'MTR-${candidates.first}' : '';
     final meterReading = candidates.length > 1 ? candidates[1] : '';
 
-    final bothValid = _isFiveDigit(meterNumber) && _isFiveDigit(meterReading);
+    final bothValid =
+        _isValidMeterNumber(meterNumber) && _isValidMeterReading(meterReading);
     final qualityScore = _qualityScore();
     final confidence = bothValid && qualityScore >= 0.62 ? 'high' : 'low';
 
@@ -374,12 +429,24 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
     return (sharpnessScore * 0.65) + (brightnessScore * 0.35);
   }
 
-  bool _isFiveDigit(String value) {
-    return RegExp(r'^\d{5}$').hasMatch(value);
+  bool _isValidMeterNumber(String value) {
+    return RegExp(r'^MTR-\d{5}$').hasMatch(value.trim().toUpperCase());
+  }
+
+  bool _isValidMeterReading(String value) {
+    return RegExp(r'^\d+$').hasMatch(value.trim());
+  }
+
+  bool _isValidOptionalMeterReading(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty || _isValidMeterReading(trimmed);
   }
 
   Future<void> _captureAndProcess({required bool autoTriggered}) async {
-    if (_isProcessing || _cameraController == null || !_isCameraReady) {
+    if (_isProcessing ||
+        _cameraController == null ||
+        !_isCameraReady ||
+        _currentBill != null) {
       return;
     }
 
@@ -402,9 +469,13 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
       );
 
       final isValid =
-          _isFiveDigit(extracted.meterNumber) &&
-          _isFiveDigit(extracted.meterReading) &&
+          _isValidMeterNumber(extracted.meterNumber) &&
+          _isValidMeterReading(extracted.meterReading) &&
           extracted.confidence == 'high';
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _captured = true;
@@ -414,37 +485,38 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
         _confidence = extracted.confidence;
         _meterNumberController.text = extracted.meterNumber;
         _meterReadingController.text = extracted.meterReading;
-        if (!isValid) {
-          _qualityMessage =
-              'Scan quality is low. Please rescan the meter clearly.';
-        }
+        _qualityMessage = isValid
+            ? null
+            : 'Scan quality is low. Please review or edit the values before submitting.';
       });
 
-      if (!isValid && mounted) {
+      if (!isValid) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Scan quality is low. Please rescan the meter clearly.',
-            ),
             behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Scan quality is low. Please review or edit the values before submitting.',
+            ),
           ),
         );
       }
 
-      if (autoTriggered && !isValid && mounted) {
+      if (autoTriggered && !isValid) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Auto scan did not pass validation. Please rescan.'),
             behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Auto scan did not pass validation. Please adjust the values manually.',
+            ),
           ),
         );
       }
-    } catch (e) {
-      debugPrint('OCR Error: $e');
+    } catch (error) {
+      debugPrint('OCR Error: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to scan meter: $e'),
+            content: Text('Failed to scan meter: $error'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -459,6 +531,10 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
   }
 
   Future<void> _rescan() async {
+    if (_currentBill != null) {
+      return;
+    }
+
     setState(() {
       _autoCaptureTriggered = false;
       _captured = false;
@@ -467,86 +543,94 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
       _rawText = '';
       _detectedDigitBoxes = <Rect>[];
       _qualityMessage = null;
-      _meterNumberController.clear();
-      _meterReadingController.clear();
     });
     await _startImageStream();
   }
 
   Future<void> _submit() async {
-    final meterNumber = _meterNumberController.text.trim();
+    final meterNumber = BillingService.normalizeMeterNumber(
+      _meterNumberController.text,
+    );
     final meterReading = _meterReadingController.text.trim();
+    final previousReadingText = _previousReadingController.text.trim();
+    final previousReadingValue = previousReadingText.isEmpty
+        ? null
+        : int.tryParse(previousReadingText);
 
-    final isValid =
-        _isFiveDigit(meterNumber) &&
-        _isFiveDigit(meterReading) &&
-        _confidence == 'high';
-    if (!isValid) {
-      setState(() {
-        _qualityMessage =
-            'Scan quality is low. Please rescan the meter clearly.';
-      });
+    if (_currentBill != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
+          behavior: SnackBarBehavior.floating,
           content: Text(
-            'Scan quality is low. Please rescan the meter clearly.',
+            'A bill already exists for this month. Please pay it first.',
           ),
         ),
       );
       return;
     }
 
-    final payload = <String, String>{
-      'meter_number': meterNumber,
-      'meter_reading': meterReading,
-      'confidence': _confidence,
-    };
+    if (!_isValidMeterNumber(meterNumber) ||
+        !_isValidMeterReading(meterReading) ||
+        !_isValidOptionalMeterReading(previousReadingText) ||
+        (previousReadingText.isNotEmpty && previousReadingValue == null)) {
+      setState(() {
+        _qualityMessage =
+            'Enter a valid meter number, meter reading, and optional previous month reading before submitting.';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Enter a valid meter number, meter reading, and optional previous month reading before submitting.',
+          ),
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
     });
 
     try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}/api/meter-readings');
-      final response = await http
-          .post(
-            uri,
-            headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode(payload),
-          )
-          .timeout(const Duration(seconds: 12));
+      final bill = await BillingService.submitReading(
+        meterNumber: meterNumber,
+        readingValue: int.parse(meterReading),
+        previousReadingValue: previousReadingValue,
+        source: _captured && _confidence == 'high'
+            ? BillingSubmissionSource.ocr
+            : BillingSubmissionSource.manual,
+      );
 
       if (!mounted) {
         return;
       }
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Meter data submitted successfully.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        Navigator.of(context).pop(payload);
-        return;
-      }
+      setState(() {
+        _currentBill = bill;
+        _meterNumberController.text = bill.meterNumber;
+        _meterReadingController.text = bill.readingValue.toString();
+        _qualityMessage = null;
+      });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Submit failed (${response.statusCode}). Please retry.',
-          ),
           behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Bill generated for ${bill.cycleKey}. Continue payment from the Bill section.',
+          ),
         ),
       );
-    } catch (_) {
+
+      _closeWithResult();
+    } catch (error) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Network issue while submitting. Please retry.'),
+        SnackBar(
           behavior: SnackBarBehavior.floating,
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
         ),
       );
     } finally {
@@ -556,6 +640,22 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
         });
       }
     }
+  }
+
+  void _closeWithResult() {
+    final currentBill = _currentBill;
+    Navigator.of(context).pop(<String, String>{
+      'meter_number':
+          currentBill?.meterNumber ?? _meterNumberController.text.trim(),
+      'meter_reading':
+          currentBill?.readingValue.toString() ??
+          _meterReadingController.text.trim(),
+      'billing_cycle':
+          currentBill?.cycleKey ?? BillingService.currentCycleKey(),
+      'bill_amount': currentBill?.amountDue.toStringAsFixed(2) ?? '',
+      'payment_status': currentBill?.paymentStatus ?? 'UNPAID',
+      'payment_reference': currentBill?.paymentReference ?? '',
+    });
   }
 
   Rect _normalizedRegionToImageRect(
@@ -691,21 +791,68 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
     );
   }
 
-  Widget _buildResultCard() {
+  Widget _buildBillingCard() {
+    final hasBill = _currentBill != null;
+
+    InputDecoration fieldDecoration(String label) {
+      return InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.white70),
+        counterStyle: const TextStyle(color: Colors.white54),
+        enabledBorder: const OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.white30),
+        ),
+        focusedBorder: const OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.white, width: 1.2),
+        ),
+        disabledBorder: const OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.white24),
+        ),
+      );
+    }
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.74),
+        color: Colors.black.withValues(alpha: 0.78),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (_qualityMessage != null)
+          Row(
+            children: [
+              const Icon(Icons.receipt_long, color: Colors.white),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  hasBill ? 'Bill Already Generated' : 'Generate Monthly Bill',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            hasBill
+                ? 'This month already has a generated bill. Payment is available from the Bill section in the dashboard.'
+                : 'Enter the meter number and meter reading manually or scan them first. The app will verify the meter belongs to the signed-in account.',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (_billingLoadError != null)
             Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 12),
+              margin: const EdgeInsets.only(bottom: 10),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: Colors.red.withValues(alpha: 0.16),
@@ -713,115 +860,226 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
                 border: Border.all(color: Colors.red.shade300),
               ),
               child: Text(
+                _billingLoadError!,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ),
+          if (_isLoadingBilling)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: LinearProgressIndicator(minHeight: 2),
+            )
+          else if (_linkedMeterNumber.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _InfoChip(
+                    icon: Icons.badge_outlined,
+                    label: _customerName.isNotEmpty
+                        ? _customerName
+                        : 'Signed-in customer',
+                  ),
+                  _InfoChip(
+                    icon: Icons.water_damage_outlined,
+                    label: 'Linked meter: $_linkedMeterNumber',
+                  ),
+                  _InfoChip(
+                    icon: Icons.calendar_month_outlined,
+                    label: 'Cycle: ${BillingService.currentCycleKey()}',
+                  ),
+                  _InfoChip(
+                    icon: Icons.category_outlined,
+                    label: 'Type: ${_selectedCustomerType.label}',
+                  ),
+                ],
+              ),
+            ),
+          if (_qualityMessage != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.shade300),
+              ),
+              child: Text(
                 _qualityMessage!,
                 style: const TextStyle(color: Colors.white, fontSize: 13),
               ),
             ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _meterNumberController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 5,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Meter Number',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    counterStyle: TextStyle(color: Colors.white54),
-                    enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white30),
-                    ),
-                    focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white),
-                    ),
-                  ),
-                  onChanged: (_) {
-                    setState(() {});
-                  },
+          if (!hasBill) ...[
+            TextField(
+              controller: _meterNumberController,
+              keyboardType: TextInputType.text,
+              textCapitalization: TextCapitalization.characters,
+              enabled: !hasBill,
+              maxLength: 9,
+              style: const TextStyle(color: Colors.white),
+              decoration: fieldDecoration('Meter Number (MTR-12345)'),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _meterReadingController,
+              keyboardType: TextInputType.number,
+              enabled: !hasBill,
+              maxLength: 8,
+              style: const TextStyle(color: Colors.white),
+              decoration: fieldDecoration('Meter Reading'),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _previousReadingController,
+              keyboardType: TextInputType.number,
+              enabled: !hasBill,
+              maxLength: 8,
+              style: const TextStyle(color: Colors.white),
+              decoration: fieldDecoration('Previous Month Reading (optional)'),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Use this only when the meter has no stored previous reading.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  fontSize: 11,
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: _meterReadingController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 5,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Meter Reading',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    counterStyle: TextStyle(color: Colors.white54),
-                    enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white30),
-                    ),
-                    focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white),
-                    ),
-                  ),
-                  onChanged: (_) {
-                    setState(() {});
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Confidence: ${_confidence.toUpperCase()}',
-              style: TextStyle(
-                color: _confidence == 'high'
-                    ? Colors.greenAccent
-                    : Colors.orangeAccent,
-                fontWeight: FontWeight.w700,
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _isProcessing ? null : _rescan,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Rescan'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white38),
-                  ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Confidence: ${_confidence.toUpperCase()}',
+                style: TextStyle(
+                  color: _confidence == 'high'
+                      ? Colors.greenAccent
+                      : Colors.orangeAccent,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _isSubmitting ? null : _submit,
-                  icon: _isSubmitting
-                      ? const SizedBox(
-                          width: 15,
-                          height: 15,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.check),
-                  label: const Text('Submit'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Raw OCR: $_rawText',
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Raw OCR: ${_rawText.isEmpty ? 'No OCR capture yet.' : _rawText}',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white54, fontSize: 11),
             ),
-          ),
+          ] else ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: const Text(
+                'A bill already exists for this cycle. Open the Bill section to view details and complete payment.',
+                style: TextStyle(color: Colors.white70, height: 1.4),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          if (!hasBill) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isProcessing ? null : _rescan,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Scan Again'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white38),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _isSubmitting ? null : _submit,
+                    icon: _isSubmitting
+                        ? const SizedBox(
+                            width: 15,
+                            height: 15,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.receipt_long),
+                    label: const Text('Generate Bill'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed:
+                        (_isProcessing ||
+                            _isLoadingBilling ||
+                            _currentBill != null)
+                        ? null
+                        : () => _captureAndProcess(autoTriggered: false),
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Scan Now'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: (_isProcessing || _currentBill != null)
+                        ? null
+                        : () {
+                            setState(() {
+                              _autoCaptureEnabled = !_autoCaptureEnabled;
+                              _autoCaptureTriggered = false;
+                            });
+                            if (_autoCaptureEnabled) {
+                              _startImageStream();
+                            }
+                          },
+                    icon: Icon(
+                      _autoCaptureEnabled
+                          ? Icons.pause_circle_outline
+                          : Icons.play_circle_outline,
+                      color: Colors.white,
+                    ),
+                    label: Text(
+                      _autoCaptureEnabled ? 'Auto: On' : 'Auto: Off',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.white38),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            OutlinedButton.icon(
+              onPressed: _closeWithResult,
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text('Back to Bill Section'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white38),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -884,90 +1142,36 @@ class _MeterScanScreenState extends State<MeterScanScreen> {
                 ),
               ),
             ),
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: _captured
-                ? _buildResultCard()
-                : Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.7),
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(18),
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Align digits in the box. Auto-capture runs when stable.',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Sharpness: ${_latestSharpness.toStringAsFixed(1)} | Brightness: ${_latestBrightness.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: _isProcessing
-                                    ? null
-                                    : () => _captureAndProcess(
-                                        autoTriggered: false,
-                                      ),
-                                icon: const Icon(Icons.camera_alt),
-                                label: const Text('Scan Now'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _isProcessing
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _autoCaptureEnabled =
-                                              !_autoCaptureEnabled;
-                                          _autoCaptureTriggered = false;
-                                        });
-                                        if (_autoCaptureEnabled) {
-                                          _startImageStream();
-                                        }
-                                      },
-                                icon: Icon(
-                                  _autoCaptureEnabled
-                                      ? Icons.pause_circle_outline
-                                      : Icons.play_circle_outline,
-                                  color: Colors.white,
-                                ),
-                                label: Text(
-                                  _autoCaptureEnabled
-                                      ? 'Auto: On'
-                                      : 'Auto: Off',
-                                  style: const TextStyle(color: Colors.white),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: Colors.white38),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+          Positioned(bottom: 0, left: 0, right: 0, child: _buildBillingCard()),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white70, size: 14),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
           ),
         ],
       ),

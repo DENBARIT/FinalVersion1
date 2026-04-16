@@ -32,7 +32,11 @@ app.use('/subcity-admin', subcityAdminRoutes);
 
 let server = null;
 const ocrLifecycleIntervalMs = Number(process.env.OCR_LIFECYCLE_INTERVAL_MS || 60 * 60 * 1000);
+const billingLifecycleIntervalMs = Number(
+  process.env.BILLING_LIFECYCLE_INTERVAL_MS || 6 * 60 * 60 * 1000
+);
 let ocrLifecycleTimer = null;
+let billingLifecycleTimer = null;
 
 const runOcrLifecycle = async () => {
   try {
@@ -42,13 +46,27 @@ const runOcrLifecycle = async () => {
   }
 };
 
+const runBillingLifecycle = async () => {
+  try {
+    await SuperAdminService.processBillingPenaltyLifecycle();
+  } catch (error) {
+    console.error('Billing lifecycle processing failed:', error);
+  }
+};
+
 server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 
   void runOcrLifecycle();
+  void runBillingLifecycle();
+
   ocrLifecycleTimer = setInterval(() => {
     void runOcrLifecycle();
   }, ocrLifecycleIntervalMs);
+
+  billingLifecycleTimer = setInterval(() => {
+    void runBillingLifecycle();
+  }, billingLifecycleIntervalMs);
 });
 
 // Graceful shutdown helper
@@ -56,6 +74,11 @@ const shutdown = async (code = 0) => {
   if (ocrLifecycleTimer) {
     clearInterval(ocrLifecycleTimer);
     ocrLifecycleTimer = null;
+  }
+
+  if (billingLifecycleTimer) {
+    clearInterval(billingLifecycleTimer);
+    billingLifecycleTimer = null;
   }
 
   try {

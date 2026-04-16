@@ -569,10 +569,28 @@ class SuperAdminController {
     }
   }
 
+  static async expireOcrWindow(req, res) {
+    try {
+      const result = await SuperAdminService.expireOcrWindow();
+      res.status(200).json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
   static async createTariff(req, res) {
     try {
-      const result = await SuperAdminService.createTariff(req.body);
+      const result = await SuperAdminService.createTariff(req.body, req.user?.id || null);
       res.status(201).json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
+  static async updateTariff(req, res) {
+    try {
+      const result = await SuperAdminService.updateTariff(req.params.id, req.body);
+      res.status(200).json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

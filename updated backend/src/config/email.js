@@ -221,6 +221,189 @@ export async function sendOwnershipTransferNotice(to, details = {}) {
   await sendEmail(to, subject, text, html);
 }
 
+function formatBillingEmailDate(value) {
+  if (!value) {
+    return 'Not available';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Not available';
+  }
+
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export async function sendBillingGeneratedNotice(to, details = {}) {
+  const customerName = String(details.customerName || 'Customer').trim();
+  const cycleKey = String(details.cycleKey || '').trim() || 'Current cycle';
+  const amountDue = Number(details.amountDue || 0);
+  const consumption = Number(details.consumption || 0);
+  const currentReading = Number(details.currentReading || 0);
+  const billGeneratedDate = formatBillingEmailDate(details.billGeneratedDate || new Date());
+  const dueDate = formatBillingEmailDate(details.dueDate || null);
+
+  const subject = `AquaConnect Bill Generated (${cycleKey})`;
+  const text = `Hello ${customerName},\n\nYour current monthly bill has been generated for ${cycleKey}.\n\nAmount Due: ${amountDue.toFixed(
+    2
+  )} ETB\nConsumption: ${consumption.toFixed(
+    2
+  )} m3\nCurrent Month Reading: ${currentReading}\nBill Generated Date: ${billGeneratedDate}\nDue Date: ${dueDate}\n\nWe recommend paying early to avoid delay and keep your service smooth.\n\nThank you,\nAquaConnect Team`;
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; background: #eef3f7; padding: 24px;">
+      <div style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #d7e1ea; border-radius: 14px; overflow: hidden; box-shadow: 0 8px 24px rgba(6, 32, 62, 0.12);">
+        <div style="height: 6px; background: linear-gradient(90deg, #1D9E75, #2e86de, #1D9E75);"></div>
+        <div style="padding: 22px 24px 16px 24px; border-bottom: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; letter-spacing: 1.6px; color: #1D9E75; font-weight: 800;">AQUACONNECT</p>
+          <h2 style="margin: 8px 0 0 0; color: #17324d; font-size: 24px; line-height: 1.3;">Your Bill Is Ready</h2>
+          <p style="margin: 8px 0 0 0; color: #526273; font-size: 12px; letter-spacing: 0.8px;">CURRENT BILL GENERATED</p>
+        </div>
+        <div style="padding: 20px 24px 24px 24px;">
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">Hello <strong>${customerName}</strong>, your bill for <strong>${cycleKey}</strong> is now generated.</p>
+          <div style="margin-top: 6px; border: 1px solid #dbeaf8; border-radius: 10px; padding: 12px 14px; background: #f8fbff;">
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1f2937;"><strong>Amount Due:</strong> ${amountDue.toFixed(
+              2
+            )} ETB</p>
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1f2937;"><strong>Consumption:</strong> ${consumption.toFixed(
+              2
+            )} m3</p>
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1f2937;"><strong>Current Month Reading:</strong> ${currentReading}</p>
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1f2937;"><strong>Bill Generated Date:</strong> ${billGeneratedDate}</p>
+            <p style="margin: 0; font-size: 12px; color: #1f2937;"><strong>Due Date:</strong> ${dueDate}</p>
+          </div>
+          <div style="margin-top: 14px; border-left: 4px solid #1D9E75; background: #f0fdf4; border-radius: 8px; padding: 10px 12px;">
+            <p style="margin: 0; font-size: 12px; color: #14532d; line-height: 1.6;"><strong>Recommendation:</strong> Please pay early to avoid delays and keep your account in good standing.</p>
+          </div>
+        </div>
+        <div style="padding: 14px 24px; border-top: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; color: #7a8796;">This email was sent by AquaConnect. Please do not reply directly to this message.</p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await sendEmail(to, subject, text, html);
+}
+
+export async function sendBillingPaymentThankYouNotice(to, details = {}) {
+  const customerName = String(details.customerName || 'Customer').trim();
+  const amountPaid = Number(details.amountPaid || 0);
+  const consumption = Number(details.consumption || 0);
+  const currentReading = Number(details.currentReading || 0);
+  const cycleKey = String(details.cycleKey || '').trim() || 'Current cycle';
+  const billGeneratedDate = formatBillingEmailDate(details.billGeneratedDate || null);
+  const paymentDate = formatBillingEmailDate(details.paymentDate || new Date());
+
+  const subject = `AquaConnect Payment Received (${cycleKey})`;
+  const text = `Hello ${customerName},\n\nThank you. Your payment has been received successfully.\n\nAmount Paid: ${amountPaid.toFixed(
+    2
+  )} ETB\nConsumption: ${consumption.toFixed(
+    2
+  )} m3\nCurrent Month Reading: ${currentReading}\nBill Generated Date: ${billGeneratedDate}\nPayment Date: ${paymentDate}\n\nThank you for paying on time.\n\nAquaConnect Team`;
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; background: #eef3f7; padding: 24px;">
+      <div style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #d7e1ea; border-radius: 14px; overflow: hidden; box-shadow: 0 8px 24px rgba(6, 32, 62, 0.12);">
+        <div style="height: 6px; background: linear-gradient(90deg, #1D9E75, #2e86de, #1D9E75);"></div>
+        <div style="padding: 22px 24px 16px 24px; border-bottom: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; letter-spacing: 1.6px; color: #1D9E75; font-weight: 800;">AQUACONNECT</p>
+          <h2 style="margin: 8px 0 0 0; color: #17324d; font-size: 24px; line-height: 1.3;">Thank You For Your Payment</h2>
+          <p style="margin: 8px 0 0 0; color: #526273; font-size: 12px; letter-spacing: 0.8px;">PAYMENT CONFIRMATION</p>
+        </div>
+        <div style="padding: 20px 24px 24px 24px;">
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">Hello <strong>${customerName}</strong>, we have successfully recorded your bill payment for <strong>${cycleKey}</strong>.</p>
+          <div style="margin-top: 6px; border: 1px solid #dbeaf8; border-radius: 10px; padding: 12px 14px; background: #f8fbff;">
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1f2937;"><strong>Amount Paid:</strong> ${amountPaid.toFixed(
+              2
+            )} ETB</p>
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1f2937;"><strong>Consumption:</strong> ${consumption.toFixed(
+              2
+            )} m3</p>
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1f2937;"><strong>Current Month Reading:</strong> ${currentReading}</p>
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1f2937;"><strong>Bill Generated Date:</strong> ${billGeneratedDate}</p>
+            <p style="margin: 0; font-size: 12px; color: #1f2937;"><strong>Payment Date:</strong> ${paymentDate}</p>
+          </div>
+        </div>
+        <div style="padding: 14px 24px; border-top: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; color: #7a8796;">This email was sent by AquaConnect. Please do not reply directly to this message.</p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await sendEmail(to, subject, text, html);
+}
+
+export async function sendBillingPaymentReminderNotice(to, details = {}) {
+  const customerName = String(details.customerName || 'Customer').trim();
+  const cycleKey = String(details.cycleKey || '').trim() || 'Current cycle';
+  const amountDue = Number(details.amountDue || 0);
+  const overdueDays = Number(details.overdueDays || 0);
+  const stage = Number(details.stage || 1);
+  const dueDate = formatBillingEmailDate(details.dueDate || null);
+  const penaltyRatePercent = Number(details.penaltyRatePercent || 0);
+
+  const subject =
+    stage >= 3
+      ? `AquaConnect Final Billing Warning (${cycleKey})`
+      : `AquaConnect Billing Reminder (${cycleKey})`;
+
+  const warningLine =
+    stage >= 3
+      ? 'This is now your third unpaid month. Please pay immediately to avoid administrative actions.'
+      : 'Please pay your outstanding bill to keep your account in good standing.';
+
+  const penaltyLine =
+    stage >= 3
+      ? `Daily late penalty is now active at ${penaltyRatePercent.toFixed(2)}% per day.`
+      : 'No late penalty is applied during the first two unpaid months.';
+
+  const text = `Hello ${customerName},\n\nYour bill for ${cycleKey} is still unpaid.\n\nAmount Due: ${amountDue.toFixed(
+    2
+  )} ETB\nDue Date: ${dueDate}\nOverdue Days: ${overdueDays}\n\n${warningLine}\n${penaltyLine}\n\nThank you,\nAquaConnect Team`;
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; background: #eef3f7; padding: 24px;">
+      <div style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #d7e1ea; border-radius: 14px; overflow: hidden; box-shadow: 0 8px 24px rgba(6, 32, 62, 0.12);">
+        <div style="height: 6px; background: linear-gradient(90deg, #EF9F27, #E24B4A, #EF9F27);"></div>
+        <div style="padding: 22px 24px 16px 24px; border-bottom: 1px solid #e8eef4; background: #fffaf5;">
+          <p style="margin: 0; font-size: 11px; letter-spacing: 1.6px; color: #b45309; font-weight: 800;">AQUACONNECT</p>
+          <h2 style="margin: 8px 0 0 0; color: #7c2d12; font-size: 24px; line-height: 1.3;">${
+            stage >= 3 ? 'Final Billing Warning' : 'Billing Payment Reminder'
+          }</h2>
+          <p style="margin: 8px 0 0 0; color: #7a5543; font-size: 12px; letter-spacing: 0.8px;">UNPAID BILL NOTICE</p>
+        </div>
+        <div style="padding: 20px 24px 24px 24px;">
+          <p style="margin: 0 0 12px 0; color: #2d3e50; font-size: 14px; line-height: 1.65;">Hello <strong>${customerName}</strong>, your bill for <strong>${cycleKey}</strong> is still unpaid.</p>
+          <div style="margin-top: 6px; border: 1px solid #f3d3bf; border-radius: 10px; padding: 12px 14px; background: #fff7ed;">
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #7c2d12;"><strong>Amount Due:</strong> ${amountDue.toFixed(
+              2
+            )} ETB</p>
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #7c2d12;"><strong>Due Date:</strong> ${dueDate}</p>
+            <p style="margin: 0; font-size: 12px; color: #7c2d12;"><strong>Overdue Days:</strong> ${overdueDays}</p>
+          </div>
+          <div style="margin-top: 14px; border-left: 4px solid #E24B4A; background: #fff1f2; border-radius: 8px; padding: 10px 12px;">
+            <p style="margin: 0 0 6px 0; font-size: 12px; color: #7f1d1d; line-height: 1.6;"><strong>Important:</strong> ${warningLine}</p>
+            <p style="margin: 0; font-size: 12px; color: #7f1d1d; line-height: 1.6;">${penaltyLine}</p>
+          </div>
+        </div>
+        <div style="padding: 14px 24px; border-top: 1px solid #e8eef4; background: #f9fcff;">
+          <p style="margin: 0; font-size: 11px; color: #7a8796;">This email was sent by AquaConnect. Please do not reply directly to this message.</p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await sendEmail(to, subject, text, html);
+}
+
 function renderAquaTemplate({
   title,
   subtitle,

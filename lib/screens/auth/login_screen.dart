@@ -139,47 +139,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleGoogleSignIn() async {
-    if (_isSubmitting) {
-      return;
-    }
-
-    setState(() => _isSubmitting = true);
-    try {
-      final result = await AuthService.loginWithGoogle();
-      final data = result['data'] as Map<String, dynamic>?;
-      final userName =
-          result['displayName']?.toString().trim().isNotEmpty == true
-          ? result['displayName'].toString().trim()
-          : result['email'].toString().split('@').first;
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('is_logged_in', true);
-      await prefs.setString('logged_in_username', userName);
-      if (data != null) {
-        await prefs.setString(
-          'login_access_token',
-          data['accessToken']?.toString() ?? '',
-        );
-        await prefs.setString(
-          'login_refresh_token',
-          data['refreshToken']?.toString() ?? '',
-        );
-      }
-
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const PostSignInPage()),
-        (route) => false,
-      );
-    } catch (error) {
-      if (!mounted) return;
-      final text = error.toString().replaceFirst('Exception: ', '');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
-    } finally {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-      }
-    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Google sign-in is disabled in this build.'),
+      ),
+    );
   }
 
   Future<void> _handleFacebookSignIn() async {
@@ -861,24 +826,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _googleMulticolorIcon() {
-    return ShaderMask(
-      shaderCallback: (Rect bounds) {
-        return const SweepGradient(
-          colors: [
-            Color(0xFF4285F4),
-            Color(0xFF34A853),
-            Color(0xFFFBBC05),
-            Color(0xFFEA4335),
-            Color(0xFF4285F4),
-          ],
-          stops: [0.0, 0.25, 0.5, 0.75, 1.0],
-        ).createShader(bounds);
-      },
-      child: const FaIcon(
-        FontAwesomeIcons.google,
-        size: 18,
-        color: Colors.white,
-      ),
+    return const FaIcon(
+      FontAwesomeIcons.google,
+      size: 18,
+      color: Color(0xFF4285F4),
     );
   }
 }

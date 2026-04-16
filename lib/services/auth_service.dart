@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:city_water_flutter/config/api_config.dart';
 // import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
 class AuthService {
@@ -53,28 +52,6 @@ class AuthService {
     }
 
     throw Exception(_extractErrorMessage(decoded));
-  }
-
-  static Future<Map<String, dynamic>> loginWithGoogle() async {
-    final googleSignIn = GoogleSignIn.instance;
-    final account = await googleSignIn.authenticate(scopeHint: ['email']);
-
-    if (account.email.isEmpty) {
-      throw Exception('Google sign-in was cancelled.');
-    }
-
-    final authentication = account.authentication;
-    final backendResponse = await socialLogin(
-      provider: 'google',
-      email: account.email,
-      providerToken: authentication.idToken,
-    );
-
-    return {
-      'email': account.email,
-      'displayName': account.displayName,
-      'data': backendResponse['data'],
-    };
   }
 
   static Future<Map<String, dynamic>> loginWithFacebook() async {

@@ -8,11 +8,16 @@ import {
   sendPasswordResetOtp,
   sendSuperAdminVerificationOtp,
   sendOwnershipTransferNotice,
+  sendBillingGeneratedNotice,
+  sendBillingPaymentThankYouNotice,
 } from '../../config/email.js';
 
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'superrefreshsecret';
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
+const CHAPA_BASE_URL = process.env.CHAPA_BASE_URL || 'https://api.chapa.co/v1';
+const CHAPA_SECRET_KEY = process.env.CHAPA_SECRET_KEY || '';
+const LATE_OCR_WINDOW_DURATION_DAYS = Number(process.env.LATE_OCR_WINDOW_DURATION_DAYS || 3);
 
 const otpRequestLocks = new Map();
 
@@ -28,6 +33,234 @@ function normalizeProvider(provider) {
   return String(provider || '')
     .trim()
     .toLowerCase();
+}
+
+function normalizeMeterNumber(meterNumber) {
+  const normalized = String(meterNumber || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+
+  if (/^\d{5}$/.test(normalized)) {
+    return `MTR-${normalized}`;
+  }
+
+  return normalized;
+}
+
+function normalizeCustomerType(customerType) {
+  const normalized = String(customerType || '')
+    .trim()
+    .toUpperCase();
+
+  if (['RESIDENTIAL', 'COMMERCIAL', 'GOVERNMENTAL'].includes(normalized)) {
+    return normalized;
+  }
+
+  return '';
+}
+
+function currentCycle(now = new Date()) {
+  return {
+    month: now.getMonth() + 1,
+    year: now.getFullYear(),
+    cycleKey: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+  };
+}
+
+function toNumber(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') return Number(value);
+  if (value && typeof value === 'object' && typeof value.toNumber === 'function') {
+    return value.toNumber();
+  }
+  return 0;
+}
+
+function normalizeTariffBlocks(blocks) {
+  const rows = Array.isArray(blocks) ? blocks : [];
+
+  return rows
+    .map((block) => ({
+      fromM3: Number.parseInt(block?.fromM3, 10),
+      toM3:
+        block?.toM3 === null || block?.toM3 === undefined || block?.toM3 === ''
+          ? null
+          : Number.parseInt(block?.toM3, 10),
+      pricePerM3: toNumber(block?.pricePerM3),
+    }))
+    .filter((block) => Number.isFinite(block.fromM3) && Number.isFinite(block.pricePerM3))
+    .sort((a, b) => a.fromM3 - b.fromM3);
+}
+
+function validateTariffBlocksOrThrow(blocks) {
+  if (!blocks.length) {
+    throw new Error('Active tariff is invalid: at least one tier is required.');
+  }
+
+  if (blocks[0].fromM3 !== 0) {
+    throw new Error('Active tariff is invalid: first tier must start at 0 m3.');
+  }
+
+  let previousTo = null;
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i];
+
+    if (!Number.isInteger(block.fromM3) || block.fromM3 < 0) {
+      throw new Error('Active tariff is invalid: tier fromM3 must be a non-negative integer.');
+    }
+
+    if (block.toM3 !== null && (!Number.isInteger(block.toM3) || block.toM3 < block.fromM3)) {
+      throw new Error(
+        'Active tariff is invalid: tier toM3 must be null or an integer greater than or equal to fromM3.'
+      );
+    }
+
+    if (!Number.isFinite(block.pricePerM3) || block.pricePerM3 <= 0) {
+      throw new Error('Active tariff is invalid: each tier must have a positive price.');
+    }
+
+    if (previousTo === null && i > 0) {
+      throw new Error('Active tariff is invalid: open-ended tier must be the last tier.');
+    }
+
+    if (previousTo !== null && block.fromM3 !== previousTo + 1) {
+      throw new Error('Active tariff is invalid: tiers must be continuous without gaps.');
+    }
+
+    previousTo = block.toM3;
+  }
+}
+
+function calculateTieredAmount(consumption, blocks) {
+  if (!Number.isFinite(consumption) || consumption <= 0) {
+    return 0;
+  }
+
+  let amount = 0;
+
+  for (const block of blocks) {
+    const startExclusive = block.fromM3 <= 0 ? 0 : block.fromM3 - 1;
+    const endInclusive = block.toM3 === null ? Number.POSITIVE_INFINITY : block.toM3;
+    const unitsInBlock = Math.max(0, Math.min(consumption, endInclusive) - startExclusive);
+
+    if (unitsInBlock <= 0) {
+      continue;
+    }
+
+    amount += unitsInBlock * block.pricePerM3;
+  }
+
+  return Number(amount.toFixed(2));
+}
+
+function resolveTariffPricePerM3(tariff) {
+  const blocks = normalizeTariffBlocks(tariff?.blocks);
+  if (!blocks.length) {
+    return 0;
+  }
+
+  return toNumber(blocks[0].pricePerM3);
+}
+
+function buildMobileBillView(bill) {
+  const payment = Array.isArray(bill?.payments) && bill.payments.length ? bill.payments[0] : null;
+  const amountDue = toNumber(bill?.totalAmount);
+  const inferredUnitPrice =
+    amountDue > 0 && Number(bill?.consumption) > 0 ? amountDue / bill.consumption : 0;
+  const tariffPerM3 =
+    inferredUnitPrice > 0
+      ? Number(inferredUnitPrice.toFixed(2))
+      : resolveTariffPricePerM3(bill?.tariff);
+  const source = bill?.reading?.source || 'MANUAL';
+
+  return {
+    id: bill.id,
+    cycleKey: `${bill.billYear}-${String(bill.billMonth).padStart(2, '0')}`,
+    meterNumber: bill?.meter?.meterNumber || '',
+    customerName: bill?.customer?.fullName || '',
+    customerEmail: bill?.customer?.email || '',
+    customerType: bill?.customerType || 'RESIDENTIAL',
+    readingValue: bill?.reading?.readingValue || 0,
+    previousReadingValue: bill?.previousValue ?? null,
+    consumption: bill?.consumption || 0,
+    tariffPerCubicMeter: tariffPerM3,
+    amountDue,
+    paymentStatus: bill?.status || 'UNPAID',
+    source,
+    generatedAt: bill?.generatedAt || bill?.createdAt || new Date(),
+    dueDate: bill?.dueDate || new Date(),
+    paymentReference: payment?.referenceNumber || payment?.transactionId || null,
+    paidAt: payment?.paidAt || null,
+    checkoutUrl: payment?.referenceNumber || null,
+  };
+}
+
+function buildBillNumber({ meterNumber, month, year }) {
+  const compactMeter = String(meterNumber || '')
+    .replace(/[^A-Z0-9]/gi, '')
+    .slice(-6);
+  const timestampPart = String(Date.now()).slice(-6);
+  return `BILL-${year}${String(month).padStart(2, '0')}-${compactMeter}-${timestampPart}`;
+}
+
+async function initializeChapaSandbox({ amount, email, fullName, phoneE164, txRef }) {
+  if (!CHAPA_SECRET_KEY) {
+    return {
+      usedChapa: false,
+      checkoutUrl: null,
+      referenceNumber: null,
+      providerMessage: 'CHAPA_SECRET_KEY is not set. Payment recorded as mock success.',
+    };
+  }
+
+  const payload = {
+    amount: String(amount.toFixed(2)),
+    currency: 'ETB',
+    email,
+    first_name: String(fullName || 'Customer').split(' ')[0] || 'Customer',
+    last_name:
+      String(fullName || 'Customer')
+        .split(' ')
+        .slice(1)
+        .join(' ') || 'User',
+    phone_number: phoneE164 || undefined,
+    tx_ref: txRef,
+    callback_url: process.env.CHAPA_CALLBACK_URL || undefined,
+    return_url: process.env.CHAPA_RETURN_URL || undefined,
+    customization: {
+      title: 'AquaConnect Billing Sandbox',
+      description: 'Sandbox payment initialization for generated monthly bill',
+    },
+  };
+
+  const response = await fetch(`${CHAPA_BASE_URL}/transaction/initialize`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${CHAPA_SECRET_KEY}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  let decoded = null;
+  try {
+    decoded = await response.json();
+  } catch (_error) {
+    decoded = null;
+  }
+
+  if (!response.ok || !decoded || decoded.status !== 'success') {
+    const reason = decoded?.message || 'Failed to initialize Chapa sandbox payment.';
+    throw new Error(reason);
+  }
+
+  return {
+    usedChapa: true,
+    checkoutUrl: decoded?.data?.checkout_url || null,
+    referenceNumber: decoded?.data?.reference || decoded?.data?.tx_ref || txRef,
+    providerMessage: decoded?.message || 'Chapa sandbox initialized.',
+  };
 }
 
 const LOGIN_ROLE_PRIORITY = [
@@ -1635,6 +1868,823 @@ class AuthService {
     };
   }
 
+  async getCurrentCustomerBill(userId) {
+    const profile = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+      },
+    });
+
+    if (!profile || profile.deletedAt || profile.status !== 'ACTIVE') {
+      throw new Error('User not found or inactive');
+    }
+
+    if (profile.role !== 'CUSTOMER') {
+      throw new Error('Only customers can access billing.');
+    }
+
+    const { month, year } = currentCycle();
+
+    const bill = await prisma.bill.findFirst({
+      where: {
+        customerId: userId,
+        billMonth: month,
+        billYear: year,
+      },
+      include: {
+        meter: {
+          select: {
+            id: true,
+            meterNumber: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phoneE164: true,
+          },
+        },
+        reading: {
+          select: {
+            id: true,
+            readingValue: true,
+            source: true,
+          },
+        },
+        tariff: {
+          include: {
+            blocks: {
+              orderBy: {
+                fromM3: 'asc',
+              },
+            },
+          },
+        },
+        payments: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return bill ? buildMobileBillView(bill) : null;
+  }
+
+  async submitCustomerReadingAndGenerateBill(userId, payload) {
+    const meterNumber = normalizeMeterNumber(payload?.meterNumber);
+    const readingValue = Number(payload?.readingValue);
+    const providedPreviousReadingValue =
+      payload?.previousReadingValue === null ||
+      payload?.previousReadingValue === undefined ||
+      payload?.previousReadingValue === ''
+        ? null
+        : Number(payload.previousReadingValue);
+    const customerType = normalizeCustomerType(payload?.customerType);
+    const sourceRaw = String(payload?.source || 'MANUAL')
+      .trim()
+      .toUpperCase();
+    const source = sourceRaw === 'OCR' ? 'OCR' : 'MANUAL';
+    const ocrConfidence = payload?.ocrConfidence == null ? null : Number(payload?.ocrConfidence);
+
+    if (!meterNumber) {
+      throw new Error('Meter number is required.');
+    }
+
+    if (!Number.isInteger(readingValue) || readingValue < 0) {
+      throw new Error('Reading value must be a non-negative integer.');
+    }
+
+    if (!customerType) {
+      throw new Error('Customer type is required.');
+    }
+
+    if (
+      providedPreviousReadingValue !== null &&
+      (!Number.isInteger(providedPreviousReadingValue) || providedPreviousReadingValue < 0)
+    ) {
+      throw new Error('Previous month reading must be a non-negative integer.');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phoneE164: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+        subCityId: true,
+      },
+    });
+
+    if (!user || user.deletedAt || user.status !== 'ACTIVE') {
+      throw new Error('User not found or inactive');
+    }
+
+    if (user.role !== 'CUSTOMER') {
+      throw new Error('Only customers can submit meter readings.');
+    }
+
+    const meter = await prisma.meter.findUnique({
+      where: { meterNumber },
+      select: {
+        id: true,
+        meterNumber: true,
+        customerId: true,
+        subCityId: true,
+        woredaId: true,
+        lastReading: true,
+      },
+    });
+
+    if (!meter) {
+      throw new Error('Meter number not found.');
+    }
+
+    if (meter.customerId !== user.id) {
+      throw new Error('This meter number is not linked to the signed-in account.');
+    }
+
+    const { month, year } = currentCycle();
+
+    const existingMonthlyReading = await prisma.meterReading.findFirst({
+      where: {
+        meterId: meter.id,
+        readingMonth: month,
+        readingYear: year,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingMonthlyReading) {
+      throw new Error('A reading was already submitted for this billing cycle.');
+    }
+
+    let hasRegularOcrAccess = false;
+    let hasLateOcrAccess = false;
+
+    if (source === 'OCR') {
+      if (!user.subCityId) {
+        throw new Error('Customer account is not assigned to a subcity for OCR access.');
+      }
+
+      const now = new Date();
+      const windows = await prisma.oCRWindow.findMany({
+        where: {
+          subCityId: user.subCityId,
+          month,
+          year,
+          isActive: true,
+        },
+        select: {
+          isLateWindow: true,
+          openDate: true,
+          closeDate: true,
+        },
+      });
+
+      for (const windowRecord of windows) {
+        const start = new Date(windowRecord.openDate);
+        const close = new Date(windowRecord.closeDate);
+        const isOpen = now >= start && now <= close;
+
+        if (!isOpen) {
+          continue;
+        }
+
+        if (windowRecord.isLateWindow) {
+          hasLateOcrAccess = true;
+        } else {
+          hasRegularOcrAccess = true;
+        }
+      }
+
+      if (!hasRegularOcrAccess && !hasLateOcrAccess) {
+        throw new Error(
+          'OCR window is closed. Please apply for late OCR access before submitting your scan.'
+        );
+      }
+    }
+
+    const activeTariff = await prisma.tariff.findFirst({
+      where: {
+        isActive: true,
+        customerType,
+        effectiveFrom: {
+          lte: new Date(),
+        },
+      },
+      include: {
+        blocks: {
+          orderBy: {
+            fromM3: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        effectiveFrom: 'desc',
+      },
+    });
+
+    if (!activeTariff) {
+      throw new Error(`No active tariff is configured yet for ${customerType.toLowerCase()}.`);
+    }
+
+    const normalizedBlocks = normalizeTariffBlocks(activeTariff.blocks);
+    validateTariffBlocksOrThrow(normalizedBlocks);
+
+    const previousReading = await prisma.meterReading.findFirst({
+      where: {
+        meterId: meter.id,
+      },
+      orderBy: [{ readingYear: 'desc' }, { readingMonth: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        readingValue: true,
+      },
+    });
+
+    const previousValue =
+      previousReading?.readingValue ?? meter.lastReading ?? providedPreviousReadingValue;
+
+    if (previousValue === null || previousValue === undefined) {
+      throw new Error(
+        'Previous month reading is required when no prior reading is available for this meter.'
+      );
+    }
+
+    if (readingValue < previousValue) {
+      throw new Error('The submitted reading must not be lower than the previous reading.');
+    }
+
+    const consumption = readingValue - previousValue;
+    const amount = calculateTieredAmount(consumption, normalizedBlocks);
+    const penaltyRatePercent =
+      hasLateOcrAccess && !hasRegularOcrAccess
+        ? Number(activeTariff.latePenaltyPerDayPercent || 0)
+        : 0;
+    const penaltyRate = Math.max(0, penaltyRatePercent) / 100;
+    const latePenaltyAmount = Number((amount * penaltyRate).toFixed(2));
+    const totalAmount = Number((amount + latePenaltyAmount).toFixed(2));
+    const dueDate = new Date(year, month, 1);
+    const billNumber = buildBillNumber({ meterNumber: meter.meterNumber, month, year });
+
+    const createdBill = await prisma.$transaction(async (tx) => {
+      const reading = await tx.meterReading.create({
+        data: {
+          meterId: meter.id,
+          readingValue,
+          readingMonth: month,
+          readingYear: year,
+          source,
+          submittedById: user.id,
+          userId: user.id,
+          detectedMeterNumber: meter.meterNumber,
+          detectedReading: readingValue,
+          meterMatched: true,
+          ocrMeterNumberText: meter.meterNumber,
+          ocrReadingText: String(readingValue),
+          ocrConfidence: Number.isFinite(ocrConfidence) ? ocrConfidence : null,
+        },
+      });
+
+      const bill = await tx.bill.create({
+        data: {
+          billNumber,
+          meterId: meter.id,
+          readingId: reading.id,
+          customerId: user.id,
+          subCityId: meter.subCityId,
+          customerType,
+          billMonth: month,
+          billYear: year,
+          billingDate: new Date(),
+          previousValue,
+          currentValue: readingValue,
+          consumption,
+          tariffId: activeTariff.id,
+          amount,
+          totalAmount,
+          latePenaltyAmount,
+          dueDate,
+          status: 'UNPAID',
+        },
+        include: {
+          meter: {
+            select: {
+              id: true,
+              meterNumber: true,
+            },
+          },
+          customer: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phoneE164: true,
+            },
+          },
+          reading: {
+            select: {
+              id: true,
+              readingValue: true,
+              source: true,
+            },
+          },
+          tariff: {
+            include: {
+              blocks: {
+                orderBy: {
+                  fromM3: 'asc',
+                },
+              },
+            },
+          },
+          payments: {
+            take: 1,
+          },
+        },
+      });
+
+      await tx.meterReading.update({
+        where: {
+          id: reading.id,
+        },
+        data: {
+          isBilled: true,
+          billedAt: new Date(),
+        },
+      });
+
+      await tx.meter.update({
+        where: {
+          id: meter.id,
+        },
+        data: {
+          lastReading: readingValue,
+          lastReadingDate: new Date(),
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: user.id,
+          type: 'BILL_GENERATED',
+          title: {
+            en: 'Monthly bill generated',
+            am: 'ወርሃዊ ቢል ተፈጥሯል',
+          },
+          message: {
+            en: `Your bill for ${year}-${String(month).padStart(
+              2,
+              '0'
+            )} is ready: ${totalAmount.toFixed(2)} ETB.`,
+            am: `የ${year}-${String(month).padStart(2, '0')} ቢልዎ ዝግጁ ነው፡ ${totalAmount.toFixed(
+              2
+            )} ብር።`,
+          },
+          data: {
+            billId: bill.id,
+            meterNumber: meter.meterNumber,
+            penaltyAmount: latePenaltyAmount,
+            penaltyRatePercent,
+          },
+          isSent: true,
+          sentVia: ['IN_APP'],
+        },
+      });
+
+      return bill;
+    });
+
+    const billingCycleKey = `${year}-${String(month).padStart(2, '0')}`;
+    const customerEmail = String(user.email || createdBill?.customer?.email || '').trim();
+    if (customerEmail) {
+      try {
+        await sendBillingGeneratedNotice(customerEmail, {
+          customerName: user.fullName,
+          cycleKey: billingCycleKey,
+          amountDue: totalAmount,
+          consumption,
+          currentReading: readingValue,
+          billGeneratedDate: createdBill?.billingDate || createdBill?.createdAt || new Date(),
+          dueDate: createdBill?.dueDate || null,
+        });
+      } catch (error) {
+        console.error('Failed to send bill generated email notification:', error?.message || error);
+      }
+    }
+
+    return buildMobileBillView(createdBill);
+  }
+
+  async requestLatePaymentOcrAccess(userId, payload = {}) {
+    const customerType = normalizeCustomerType(payload?.customerType);
+    if (!customerType) {
+      throw new Error('Customer type is required for late OCR access.');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+        subCityId: true,
+      },
+    });
+
+    if (!user || user.deletedAt || user.status !== 'ACTIVE') {
+      throw new Error('User not found or inactive');
+    }
+
+    if (user.role !== 'CUSTOMER') {
+      throw new Error('Only customers can request late OCR access.');
+    }
+
+    if (!user.subCityId) {
+      throw new Error('Customer account is not assigned to a subcity.');
+    }
+
+    const now = new Date();
+    const { month, year } = currentCycle(now);
+
+    const regularWindow = await prisma.oCRWindow.findFirst({
+      where: {
+        subCityId: user.subCityId,
+        month,
+        year,
+        isLateWindow: false,
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+      select: {
+        id: true,
+        isActive: true,
+        openDate: true,
+        closeDate: true,
+      },
+    });
+
+    if (regularWindow) {
+      const regularStart = new Date(regularWindow.openDate);
+      const regularClose = new Date(regularWindow.closeDate);
+      const regularOpen =
+        Boolean(regularWindow.isActive) && now >= regularStart && now <= regularClose;
+      const regularScheduled = Boolean(regularWindow.isActive) && now < regularStart;
+
+      if (regularOpen) {
+        return {
+          message: 'OCR window is already open. You can submit your scan now.',
+          window: {
+            isLateWindow: false,
+            startDate: regularStart.toISOString(),
+            closeDate: regularClose.toISOString(),
+            month,
+            year,
+          },
+          penaltyRatePercent: 0,
+          penaltyFormula: 'Penalty = BillAmount x PenaltyRate',
+        };
+      }
+
+      if (regularScheduled) {
+        throw new Error(
+          'OCR window is scheduled but not open yet. Please submit during the scheduled dates.'
+        );
+      }
+    }
+
+    const activeTariff = await prisma.tariff.findFirst({
+      where: {
+        isActive: true,
+        customerType,
+        effectiveFrom: {
+          lte: now,
+        },
+      },
+      orderBy: {
+        effectiveFrom: 'desc',
+      },
+      select: {
+        latePenaltyPerDayPercent: true,
+      },
+    });
+
+    if (!activeTariff) {
+      throw new Error(`No active tariff is configured yet for ${customerType.toLowerCase()}.`);
+    }
+
+    const closeDate = new Date(now);
+    closeDate.setDate(closeDate.getDate() + Math.max(1, LATE_OCR_WINDOW_DURATION_DAYS));
+
+    const lateWindow = await prisma.$transaction(async (tx) => {
+      const upserted = await tx.oCRWindow.upsert({
+        where: {
+          subCityId_month_year_isLateWindow: {
+            subCityId: user.subCityId,
+            month,
+            year,
+            isLateWindow: true,
+          },
+        },
+        update: {
+          openDate: now,
+          closeDate,
+          isActive: true,
+          openedById: user.id,
+        },
+        create: {
+          subCityId: user.subCityId,
+          month,
+          year,
+          openDate: now,
+          closeDate,
+          isLateWindow: true,
+          isActive: true,
+          openedById: user.id,
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: user.id,
+          type: 'OCR_WINDOW_OPEN',
+          title: {
+            en: 'Late OCR Access Granted',
+            am: 'የዘገየ OCR ፍቃድ ተሰጥቷል',
+          },
+          message: {
+            en: 'Late OCR access has been opened for your account. A late-payment penalty will be applied to this bill.',
+            am: 'የዘገየ OCR ፍቃድ ለመለያዎ ተከፍቷል። በዚህ ቢል ላይ የዘገየ ክፍያ ቅጣት ይተገበራል።',
+          },
+          data: {
+            month,
+            year,
+            closeDate: closeDate.toISOString(),
+            penaltyRatePercent: Number(activeTariff.latePenaltyPerDayPercent || 0),
+          },
+          isSent: true,
+          sentVia: ['IN_APP'],
+        },
+      });
+
+      return upserted;
+    });
+
+    return {
+      message: 'Late OCR access granted successfully.',
+      window: {
+        isLateWindow: true,
+        startDate: new Date(lateWindow.openDate).toISOString(),
+        closeDate: new Date(lateWindow.closeDate).toISOString(),
+        month,
+        year,
+      },
+      penaltyRatePercent: Number(activeTariff.latePenaltyPerDayPercent || 0),
+      penaltyFormula: 'Penalty = BillAmount x PenaltyRate',
+    };
+  }
+
+  async payCurrentCycleBillWithMockChapa(userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phoneE164: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+      },
+    });
+
+    if (!user || user.deletedAt || user.status !== 'ACTIVE') {
+      throw new Error('User not found or inactive');
+    }
+
+    if (user.role !== 'CUSTOMER') {
+      throw new Error('Only customers can pay bills.');
+    }
+
+    const { month, year } = currentCycle();
+
+    const bill = await prisma.bill.findFirst({
+      where: {
+        customerId: user.id,
+        billMonth: month,
+        billYear: year,
+      },
+      include: {
+        meter: {
+          select: {
+            id: true,
+            meterNumber: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phoneE164: true,
+          },
+        },
+        reading: {
+          select: {
+            id: true,
+            readingValue: true,
+            source: true,
+          },
+        },
+        tariff: {
+          include: {
+            blocks: {
+              orderBy: {
+                fromM3: 'asc',
+              },
+            },
+          },
+        },
+        payments: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    if (!bill) {
+      throw new Error('No generated bill was found for the current cycle.');
+    }
+
+    if (bill.status === 'PAID') {
+      return {
+        bill: buildMobileBillView(bill),
+        payment: {
+          status: 'SUCCESS',
+          message: 'Bill is already paid.',
+          usedChapa: true,
+        },
+      };
+    }
+
+    const amount = toNumber(bill.totalAmount);
+    const txRef = `CHAPA-MOCK-${bill.id}-${Date.now()}`;
+
+    const chapaInit = await initializeChapaSandbox({
+      amount,
+      email: user.email,
+      fullName: user.fullName,
+      phoneE164: user.phoneE164,
+      txRef,
+    });
+
+    const settled = await prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.create({
+        data: {
+          billId: bill.id,
+          customerId: user.id,
+          subCityId: bill.subCityId,
+          amount,
+          method: 'CHAPA',
+          status: 'SUCCESS',
+          transactionId: txRef,
+          referenceNumber: chapaInit.checkoutUrl || chapaInit.referenceNumber || txRef,
+          initiatedAt: new Date(),
+          paidAt: new Date(),
+        },
+      });
+
+      const updatedBill = await tx.bill.update({
+        where: {
+          id: bill.id,
+        },
+        data: {
+          status: 'PAID',
+          paidAmount: amount,
+        },
+        include: {
+          meter: {
+            select: {
+              id: true,
+              meterNumber: true,
+            },
+          },
+          customer: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phoneE164: true,
+            },
+          },
+          reading: {
+            select: {
+              id: true,
+              readingValue: true,
+              source: true,
+            },
+          },
+          tariff: {
+            include: {
+              blocks: {
+                orderBy: {
+                  fromM3: 'asc',
+                },
+              },
+            },
+          },
+          payments: {
+            orderBy: {
+              createdAt: 'desc',
+            },
+            take: 1,
+          },
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: user.id,
+          type: 'PAYMENT_CONFIRMATION',
+          title: {
+            en: 'Payment successful',
+            am: 'ክፍያ ተሳክቷል',
+          },
+          message: {
+            en: `Payment of ${amount.toFixed(2)} ETB was recorded for your current bill.`,
+            am: `የ${amount.toFixed(2)} ብር ክፍያ ለዚህ ወር ቢል ተመዝግቧል።`,
+          },
+          data: {
+            billId: updatedBill.id,
+            transactionId: payment.transactionId,
+          },
+          isSent: true,
+          sentVia: ['IN_APP'],
+        },
+      });
+
+      return {
+        updatedBill,
+        payment,
+      };
+    });
+
+    const billingCycleKey = `${year}-${String(month).padStart(2, '0')}`;
+    const customerEmail = String(user.email || settled?.updatedBill?.customer?.email || '').trim();
+    if (customerEmail) {
+      try {
+        await sendBillingPaymentThankYouNotice(customerEmail, {
+          customerName: user.fullName,
+          cycleKey: billingCycleKey,
+          amountPaid: amount,
+          consumption: toNumber(settled?.updatedBill?.consumption),
+          currentReading: Number(settled?.updatedBill?.currentValue || 0),
+          billGeneratedDate:
+            settled?.updatedBill?.billingDate || settled?.updatedBill?.createdAt || null,
+          paymentDate: settled?.payment?.paidAt || new Date(),
+        });
+      } catch (error) {
+        console.error(
+          'Failed to send payment success email notification:',
+          error?.message || error
+        );
+      }
+    }
+
+    return {
+      bill: buildMobileBillView(settled.updatedBill),
+      payment: {
+        id: settled.payment.id,
+        status: settled.payment.status,
+        transactionId: settled.payment.transactionId,
+        checkoutUrl: chapaInit.checkoutUrl,
+        usedChapa: chapaInit.usedChapa,
+        message: chapaInit.providerMessage,
+      },
+    };
+  }
+
   async getOcrWindowStatus(userId) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -1649,6 +2699,7 @@ class AuthService {
     }
 
     const now = new Date();
+    const { month, year } = currentCycle(now);
 
     await prisma.oCRWindow.updateMany({
       where: {
@@ -1661,16 +2712,18 @@ class AuthService {
     });
 
     const where = {
-      isLateWindow: false,
       ...(user.subCityId ? { subCityId: user.subCityId } : {}),
+      month,
+      year,
     };
 
-    const windowRecord = await prisma.oCRWindow.findFirst({
+    const cycleWindows = await prisma.oCRWindow.findMany({
       where,
-      orderBy: [{ year: 'desc' }, { month: 'desc' }, { updatedAt: 'desc' }],
+      orderBy: [{ isLateWindow: 'asc' }, { updatedAt: 'desc' }],
       select: {
         id: true,
         isActive: true,
+        isLateWindow: true,
         openDate: true,
         closeDate: true,
         month: true,
@@ -1678,12 +2731,39 @@ class AuthService {
       },
     });
 
-    if (!windowRecord) {
+    const regularWindow = cycleWindows.find((item) => !item.isLateWindow) || null;
+    const lateWindow = cycleWindows.find((item) => item.isLateWindow) || null;
+
+    const isWindowOpen = (windowRecord) => {
+      if (!windowRecord) {
+        return false;
+      }
+      const start = new Date(windowRecord.openDate);
+      const close = new Date(windowRecord.closeDate);
+      return Boolean(windowRecord.isActive) && now >= start && now <= close;
+    };
+
+    const regularOpen = isWindowOpen(regularWindow);
+    const lateOpen = isWindowOpen(lateWindow);
+
+    const regularScheduled =
+      regularWindow && Boolean(regularWindow.isActive) && now < new Date(regularWindow.openDate);
+
+    const activeWindow = regularOpen
+      ? regularWindow
+      : lateOpen
+      ? lateWindow
+      : regularScheduled
+      ? regularWindow
+      : regularWindow || lateWindow;
+
+    if (!activeWindow) {
       return {
         isConfigured: false,
         isOpen: false,
         isScheduled: false,
         isClosed: true,
+        isLateWindow: false,
         startDate: null,
         closeDate: null,
         month: null,
@@ -1691,20 +2771,21 @@ class AuthService {
       };
     }
 
-    const start = new Date(windowRecord.openDate);
-    const close = new Date(windowRecord.closeDate);
-    const isOpen = Boolean(windowRecord.isActive) && now >= start && now <= close;
-    const isScheduled = Boolean(windowRecord.isActive) && now < start;
+    const start = new Date(activeWindow.openDate);
+    const close = new Date(activeWindow.closeDate);
+    const isOpen = regularOpen || lateOpen;
+    const isScheduled = Boolean(regularScheduled) && !isOpen;
 
     return {
       isConfigured: true,
       isOpen,
       isScheduled,
       isClosed: !isOpen && !isScheduled,
+      isLateWindow: lateOpen,
       startDate: start.toISOString(),
       closeDate: close.toISOString(),
-      month: windowRecord.month,
-      year: windowRecord.year,
+      month: activeWindow.month,
+      year: activeWindow.year,
     };
   }
 }

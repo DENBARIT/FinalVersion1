@@ -230,6 +230,20 @@ class AuthController {
     }
   }
 
+  async requestLatePaymentOcrAccess(req, res) {
+    try {
+      const userId = req.user.id;
+      const result = await AuthService.requestLatePaymentOcrAccess(userId, req.body || {});
+      return res.status(200).json({
+        success: true,
+        message: 'Late OCR access granted successfully.',
+        data: result,
+      });
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
   async getAnnouncements(req, res) {
     try {
       const userId = req.user.id;
@@ -301,6 +315,47 @@ class AuthController {
       const result = await AuthService.getSchedulesForUser(userId);
       return res.status(200).json({
         success: true,
+        data: result,
+      });
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async getCurrentCustomerBill(req, res) {
+    try {
+      const userId = req.user.id;
+      const bill = await AuthService.getCurrentCustomerBill(userId);
+      return res.status(200).json({
+        success: true,
+        data: bill,
+      });
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async submitCustomerReadingAndGenerateBill(req, res) {
+    try {
+      const userId = req.user.id;
+      const bill = await AuthService.submitCustomerReadingAndGenerateBill(userId, req.body);
+      return res.status(201).json({
+        success: true,
+        message: 'Reading submitted and bill generated successfully.',
+        data: bill,
+      });
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async payCurrentCycleBillWithMockChapa(req, res) {
+    try {
+      const userId = req.user.id;
+      const result = await AuthService.payCurrentCycleBillWithMockChapa(userId);
+      return res.status(200).json({
+        success: true,
+        message: 'Payment processed successfully.',
         data: result,
       });
     } catch (error) {

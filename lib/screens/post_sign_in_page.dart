@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:city_water_flutter/my_flutter_app/main.dart' as aqua_home;
 import 'package:city_water_flutter/screens/meter_scan_screen.dart';
 import 'package:city_water_flutter/services/announcement_service.dart';
 import 'package:city_water_flutter/services/auth_service.dart';
+import 'package:city_water_flutter/services/billing_service.dart';
 import 'package:city_water_flutter/services/complaint_service.dart';
 import 'package:city_water_flutter/services/ownership_change_service.dart';
 import 'package:city_water_flutter/services/schedule_notification_service.dart';
@@ -13,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 enum DashboardFeature {
   notifications,
@@ -46,7 +49,8 @@ class _PostSignInPageState extends State<PostSignInPage>
   static const String _langKey = 'app_language';
   static const String _usernameKey = 'logged_in_username';
   static const String _darkModeKey = 'is_dark_mode';
-  static const String _ocrSubmissionKey = 'ocr_last_submitted_cycle';
+  static const String _ocrSubmissionKeyPrefix = 'ocr_last_submitted_cycle';
+  static const String _billHistoryKey = 'customer_billing_history_v1';
 
   final List<DashboardFeature> _allFeatures = const [
     DashboardFeature.notifications,
@@ -85,6 +89,11 @@ class _PostSignInPageState extends State<PostSignInPage>
   bool _isLoadingScheduleNotifications = false;
   int _scheduleUnreadCount = 0;
   List<WaterScheduleItem> _scheduleNotifications = const [];
+  bool _isLoadingBills = false;
+  bool _isPayingBill = false;
+  String? _billError;
+  List<BillingBill> _billHistory = const [];
+  String? _newlyGeneratedBillCycle;
   bool _isLoadingComplaintMessages = false;
   int _complaintUnreadCount = 0;
   List<ComplaintNotificationItem> _complaintMessages = const [];
@@ -102,6 +111,7 @@ class _PostSignInPageState extends State<PostSignInPage>
   String _registeredSubCityName = '';
   String _registeredWoredaName = '';
   String _selectedComplaintCategory = 'OTHER';
+  BillingCustomerType _selectedCustomerType = BillingCustomerType.residential;
   final TextEditingController _complaintTitleController =
       TextEditingController();
   final TextEditingController _complaintBodyController =
@@ -212,6 +222,17 @@ class _PostSignInPageState extends State<PostSignInPage>
     return _lastOcrSubmissionCycle == _cycleKey(DateTime.now());
   }
 
+  String _buildOcrSubmissionKey(OwnershipProfile profile) {
+    final normalizedEmail = profile.email.trim().toLowerCase();
+    final normalizedMeter = profile.meterNumber.trim().toUpperCase();
+
+    if (normalizedMeter.isNotEmpty) {
+      return '$_ocrSubmissionKeyPrefix:$normalizedEmail:$normalizedMeter';
+    }
+
+    return '$_ocrSubmissionKeyPrefix:$normalizedEmail';
+  }
+
   IconData _iconFor(DashboardFeature feature) {
     switch (feature) {
       case DashboardFeature.notifications:
@@ -261,7 +282,7 @@ class _PostSignInPageState extends State<PostSignInPage>
     final storedLanguage = prefs.getString(_langKey) ?? 'en';
     final storedName = prefs.getString(_usernameKey);
     final storedDarkMode = prefs.getBool(_darkModeKey) ?? false;
-    final storedSubmissionCycle = prefs.getString(_ocrSubmissionKey) ?? '';
+    final storedCustomerType = await BillingService.loadSelectedCustomerType();
 
     if (!mounted) {
       return;
@@ -275,7 +296,8 @@ class _PostSignInPageState extends State<PostSignInPage>
           : (storedName?.trim().isNotEmpty == true
                 ? storedName!.trim()
                 : 'User');
-      _lastOcrSubmissionCycle = storedSubmissionCycle;
+      _selectedCustomerType = storedCustomerType;
+      _lastOcrSubmissionCycle = '';
 
       if (storedVisible.isNotEmpty) {
         final parsed = storedVisible
@@ -291,39 +313,713 @@ class _PostSignInPageState extends State<PostSignInPage>
         _selectedIndex = 0;
       }
 
-      _showOcrWindowBanner = !_hasSubmittedCurrentCycle;
+      _showOcrWindowBanner = true;
     });
 
-    await _syncUsernameFromProfile();
+    final profile = await _syncUsernameFromProfile();
+    await _syncOcrSubmissionState(profile);
 
     await _syncOcrWindowStatus();
     await _loadAnnouncements();
     await _loadScheduleNotifications();
+    await _loadBills();
     await _loadComplaintMessages();
     await _loadComplaintLocation();
   }
 
-  Future<void> _syncUsernameFromProfile() async {
+  Future<List<BillingBill>> _readBillHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_billHistoryKey);
+    if (raw == null || raw.trim().isEmpty) {
+      return <BillingBill>[];
+    }
+
     try {
-      final profile = await OwnershipChangeService.fetchOwnershipProfile();
-      final fullName = profile.fullName.trim();
-      if (fullName.isEmpty) {
-        return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        return <BillingBill>[];
+      }
+      return decoded
+          .whereType<Map<String, dynamic>>()
+          .map(BillingBill.fromJson)
+          .toList();
+    } catch (_) {
+      return <BillingBill>[];
+    }
+  }
+
+  Future<void> _persistBillHistory(List<BillingBill> bills) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _billHistoryKey,
+      jsonEncode(bills.map((bill) => bill.toJson()).toList()),
+    );
+  }
+
+  Future<void> _loadBills() async {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingBills = true;
+      _billError = null;
+    });
+
+    try {
+      final stored = await _readBillHistory();
+      BillingBill? current;
+      try {
+        current = await BillingService.loadCurrentBill();
+      } catch (_) {
+        // Keep offline/local history if current cycle fetch fails.
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_usernameKey, fullName);
+      final byCycle = <String, BillingBill>{
+        for (final bill in stored) bill.cycleKey: bill,
+      };
+      if (current != null) {
+        byCycle[current.cycleKey] = current;
+      }
+
+      final merged = byCycle.values.toList()
+        ..sort((a, b) => b.cycleKey.compareTo(a.cycleKey));
+      await _persistBillHistory(merged);
 
       if (!mounted) {
         return;
       }
 
       setState(() {
+        _billHistory = merged;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _billError = error.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingBills = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _upsertBillAndRefresh(BillingBill bill) async {
+    final existing = await _readBillHistory();
+    final byCycle = <String, BillingBill>{
+      for (final item in existing) item.cycleKey: item,
+    };
+    byCycle[bill.cycleKey] = bill;
+    final merged = byCycle.values.toList()
+      ..sort((a, b) => b.cycleKey.compareTo(a.cycleKey));
+    await _persistBillHistory(merged);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _billHistory = merged;
+    });
+  }
+
+  String _cycleToMonthLabel(String cycleKey) {
+    final match = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(cycleKey.trim());
+    if (match == null) {
+      return cycleKey;
+    }
+
+    final year = int.tryParse(match.group(1)!);
+    final month = int.tryParse(match.group(2)!);
+    if (year == null || month == null || month < 1 || month > 12) {
+      return cycleKey;
+    }
+
+    return _monthLabel(DateTime(year, month, 1));
+  }
+
+  List<_MonthlyConsumptionPoint> _buildMonthlyConsumptionSeries({
+    int limit = 6,
+  }) {
+    final groupedConsumption = <String, double>{};
+
+    for (final bill in _billHistory) {
+      final cycleKey = bill.cycleKey.trim();
+      if (cycleKey.isEmpty) {
+        continue;
+      }
+
+      groupedConsumption[cycleKey] =
+          (groupedConsumption[cycleKey] ?? 0) + bill.consumption;
+    }
+
+    final orderedEntries = groupedConsumption.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+
+    final visibleEntries = orderedEntries.length > limit
+        ? orderedEntries.sublist(orderedEntries.length - limit)
+        : orderedEntries;
+
+    const palette = <Color>[
+      Color(0xFF1E90FF),
+      Color(0xFF0F766E),
+      Color(0xFF7C3AED),
+      Color(0xFFE24B4A),
+      Color(0xFFF59E0B),
+      Color(0xFF14B8A6),
+    ];
+
+    return List<_MonthlyConsumptionPoint>.generate(visibleEntries.length, (
+      index,
+    ) {
+      final entry = visibleEntries[index];
+      final previousValue = index > 0 ? visibleEntries[index - 1].value : null;
+      final delta = previousValue == null ? 0 : entry.value - previousValue;
+
+      return _MonthlyConsumptionPoint(
+        cycleKey: entry.key,
+        monthLabel: _cycleToMonthLabel(entry.key),
+        consumption: entry.value,
+        deltaFromPreviousMonth: delta,
+        color: palette[index % palette.length],
+      );
+    });
+  }
+
+  _MonthlyConsumptionPoint? _currentConsumptionPoint(
+    List<_MonthlyConsumptionPoint> series,
+  ) {
+    if (series.isEmpty) {
+      return null;
+    }
+
+    final currentCycleKey = BillingService.currentCycleKey();
+    for (final point in series) {
+      if (point.cycleKey == currentCycleKey) {
+        return point;
+      }
+    }
+
+    return series.last;
+  }
+
+  _MonthlyConsumptionPoint? _previousConsumptionPoint(
+    List<_MonthlyConsumptionPoint> series,
+    _MonthlyConsumptionPoint? currentPoint,
+  ) {
+    if (series.length < 2 || currentPoint == null) {
+      return null;
+    }
+
+    final currentIndex = series.indexWhere(
+      (point) => point.cycleKey == currentPoint.cycleKey,
+    );
+    if (currentIndex <= 0) {
+      return null;
+    }
+
+    return series[currentIndex - 1];
+  }
+
+  String _formatConsumptionValue(double value) {
+    if (value == 0) {
+      return '0';
+    }
+
+    return value.abs() >= 100 || value == value.roundToDouble()
+        ? value.toStringAsFixed(0)
+        : value.toStringAsFixed(1);
+  }
+
+  String _formatConsumptionDelta(double value) {
+    final prefix = value > 0 ? '+' : '';
+    return '$prefix${_formatConsumptionValue(value)} m³';
+  }
+
+  Widget _buildConsumptionPlaceholder() {
+    final textColor = _isDarkMode ? Colors.white : const Color(0xFF0F172A);
+    final bodyColor = _isDarkMode ? _darkMuted : const Color(0xFF475569);
+    final series = _buildMonthlyConsumptionSeries(limit: 6);
+    final currentPoint = _currentConsumptionPoint(series);
+    final previousPoint = _previousConsumptionPoint(series, currentPoint);
+    final monthlyDelta = currentPoint == null || previousPoint == null
+        ? 0
+        : currentPoint.consumption - previousPoint.consumption;
+    final deltaIsPositive = monthlyDelta > 0;
+    final deltaIsNegative = monthlyDelta < 0;
+    final chartPoints = series;
+    final chartTotal = chartPoints.fold<double>(
+      0,
+      (sum, point) => sum + point.consumption,
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _t('Water usage overview', 'የውሃ ፍጆታ አጠቃላይ እይታ'),
+            style: GoogleFonts.syne(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _t(
+              'Monthly usage, month-to-month change, and the latest consumption trend.',
+              'ወርሃዊ አጠቃቀም፣ ከወር ወደ ወር ለውጥ እና የቅርብ ጊዜ አዝማሚያ።',
+            ),
+            style: TextStyle(color: bodyColor, height: 1.45, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final metricWidth = (constraints.maxWidth - 12) / 2;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  SizedBox(
+                    width: math.max(metricWidth, 150),
+                    child: _consumptionMetricCard(
+                      label: _t('This month', 'ይህ ወር'),
+                      value: currentPoint == null
+                          ? _t('No data', 'መረጃ የለም')
+                          : '${_formatConsumptionValue(currentPoint.consumption)} m³',
+                      subtext: currentPoint == null
+                          ? _t(
+                              'Generate a bill to see usage.',
+                              'ፍጆታውን ለማየት ቢል ይፍጠሩ።',
+                            )
+                          : currentPoint.monthLabel,
+                      tone: const Color(0xFF1E90FF),
+                    ),
+                  ),
+                  SizedBox(
+                    width: math.max(metricWidth, 150),
+                    child: _consumptionMetricCard(
+                      label: _t('Month change', 'የወር ለውጥ'),
+                      value: currentPoint == null || previousPoint == null
+                          ? _t('No comparison', 'ንፅፅር የለም')
+                          : _formatConsumptionDelta(monthlyDelta),
+                      subtext: currentPoint == null || previousPoint == null
+                          ? _t(
+                              'Need at least two months.',
+                              'ቢያንስ ሁለት ወራት ያስፈልጋሉ።',
+                            )
+                          : deltaIsPositive
+                          ? _t(
+                              'Usage increased this month.',
+                              'ፍጆታ በዚህ ወር ጨምሯል።',
+                            )
+                          : deltaIsNegative
+                          ? _t(
+                              'Usage decreased this month.',
+                              'ፍጆታ በዚህ ወር ቀንሷል።',
+                            )
+                          : _t('Usage stayed the same.', 'ፍጆታ እኩል ቆይቷል።'),
+                      tone: deltaIsPositive
+                          ? const Color(0xFFF59E0B)
+                          : deltaIsNegative
+                          ? const Color(0xFF0F766E)
+                          : const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          if (chartPoints.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _isDarkMode
+                    ? const Color(0xFF0F172A).withValues(alpha: 0.55)
+                    : const Color(0xFFEAF4FF),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: _isDarkMode
+                      ? _darkBorder.withValues(alpha: 0.9)
+                      : const Color(0xFFBFDBFE),
+                ),
+              ),
+              child: Text(
+                _t(
+                  'No monthly consumption records are available yet.',
+                  'እስካሁን ወርሃዊ የፍጆታ መዝገብ የለም።',
+                ),
+                style: TextStyle(color: bodyColor, fontSize: 13),
+              ),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 700;
+                final chartSection = _MonthlyConsumptionPieChart(
+                  points: chartPoints,
+                  totalConsumption: chartTotal,
+                  isDarkMode: _isDarkMode,
+                  centerTitle: _t('Monthly usage', 'ወርሃዊ ፍጆታ'),
+                  centerValue: currentPoint == null
+                      ? _t('No data', 'መረጃ የለም')
+                      : '${_formatConsumptionValue(currentPoint.consumption)} m³',
+                );
+                final legend = Column(
+                  children: [
+                    for (final point in chartPoints) ...[
+                      _ConsumptionLegendRow(
+                        point: point,
+                        bodyColor: bodyColor,
+                        isDarkMode: _isDarkMode,
+                        label: point.monthLabel,
+                        valueLabel:
+                            '${_formatConsumptionValue(point.consumption)} m³',
+                        deltaLabel: point.deltaFromPreviousMonth == 0
+                            ? _t('no change', 'ለውጥ የለም')
+                            : _formatConsumptionDelta(
+                                point.deltaFromPreviousMonth,
+                              ),
+                      ),
+                      if (point != chartPoints.last) const SizedBox(height: 10),
+                    ],
+                  ],
+                );
+
+                if (isWide) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: chartSection),
+                      const SizedBox(width: 16),
+                      Expanded(child: legend),
+                    ],
+                  );
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [chartSection, const SizedBox(height: 16), legend],
+                );
+              },
+            ),
+          const SizedBox(height: 16),
+          Text(
+            _t('Tracked months', 'የተከታተሉ ወራት'),
+            style: GoogleFonts.syne(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (series.isEmpty)
+            Text(
+              _t(
+                'Generate bills to populate monthly usage reports.',
+                'ወርሃዊ የፍጆታ ሪፖርቶችን ለማሳየት ቢሎችን ይፍጠሩ።',
+              ),
+              style: TextStyle(color: bodyColor, fontSize: 13),
+            )
+          else
+            ListView.separated(
+              itemCount: series.length,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final point = series[index];
+                final previous = index > 0 ? series[index - 1] : null;
+                final monthDelta = previous == null
+                    ? null
+                    : point.consumption - previous.consumption;
+
+                return Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: _isDarkMode
+                        ? const Color(0xFF0F172A).withValues(alpha: 0.5)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: point.color.withValues(alpha: 0.22),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: point.color.withValues(
+                          alpha: _isDarkMode ? 0.16 : 0.08,
+                        ),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: point.color,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              point.monthLabel,
+                              style: TextStyle(
+                                color: textColor,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _t(
+                                'Usage: ${_formatConsumptionValue(point.consumption)} m³',
+                                'ፍጆታ: ${_formatConsumptionValue(point.consumption)} ሜ³',
+                              ),
+                              style: TextStyle(
+                                color: bodyColor,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            monthDelta == null
+                                ? _t('First month', 'የመጀመሪያ ወር')
+                                : _formatConsumptionDelta(monthDelta),
+                            style: TextStyle(
+                              color: monthDelta == null
+                                  ? bodyColor
+                                  : (monthDelta > 0
+                                        ? const Color(0xFFB45309)
+                                        : monthDelta < 0
+                                        ? const Color(0xFF0F766E)
+                                        : bodyColor),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            monthDelta == null
+                                ? _t('No prior month', 'ያለፈ ወር የለም')
+                                : monthDelta > 0
+                                ? _t('Increase', 'ጭማሪ')
+                                : monthDelta < 0
+                                ? _t('Decrease', 'ቅናሽ')
+                                : _t('No change', 'ለውጥ የለም'),
+                            style: TextStyle(color: bodyColor, fontSize: 10.5),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _consumptionMetricCard({
+    required String label,
+    required String value,
+    required String subtext,
+    required Color tone,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: _isDarkMode ? 0.14 : 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: tone.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: _isDarkMode ? Colors.white70 : const Color(0xFF334155),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: GoogleFonts.syne(
+              color: tone,
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtext,
+            style: TextStyle(
+              color: _isDarkMode ? _darkMuted : const Color(0xFF64748B),
+              fontSize: 11.5,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _payBill(BillingBill bill) async {
+    if (_isPayingBill || bill.isPaid) {
+      return;
+    }
+
+    final shouldPay =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: Text(_t('Confirm Payment', 'ክፍያ ያረጋግጡ')),
+              content: Text(
+                _t(
+                  'Proceed to Chapa test-mode payment for ${bill.amountDue.toStringAsFixed(2)} ETB (${_cycleToMonthLabel(bill.cycleKey)})?',
+                  '${_cycleToMonthLabel(bill.cycleKey)} የ${bill.amountDue.toStringAsFixed(2)} ብር ክፍያን በChapa የሙከራ ሁኔታ ለመቀጠል ይፈልጋሉ?',
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: Text(_t('Cancel', 'ይቅር')),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: Text(_t('Pay Now', 'አሁን ክፈል')),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+
+    if (!shouldPay || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isPayingBill = true;
+    });
+
+    try {
+      final paidBill = await BillingService.payCurrentBill();
+      await _upsertBillAndRefresh(paidBill);
+
+      final checkout = paidBill.checkoutUrl;
+      if (checkout != null && checkout.trim().isNotEmpty) {
+        final uri = Uri.tryParse(checkout.trim());
+        if (uri != null) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            _t(
+              'Payment completed in Chapa test mode. Status updated to PAID.',
+              'በChapa የሙከራ ሁኔታ ክፍያው ተጠናቋል። ሁኔታው PAID ሆኗል።',
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPayingBill = false;
+        });
+      }
+    }
+  }
+
+  Future<OwnershipProfile?> _syncUsernameFromProfile() async {
+    try {
+      final profile = await OwnershipChangeService.fetchOwnershipProfile();
+      final fullName = profile.fullName.trim();
+      if (fullName.isEmpty) {
+        return null;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_usernameKey, fullName);
+
+      if (!mounted) {
+        return null;
+      }
+
+      setState(() {
         _username = fullName;
       });
+
+      return profile;
     } catch (_) {
       // Keep existing local username if profile sync fails.
+      return null;
     }
+  }
+
+  Future<void> _syncOcrSubmissionState(OwnershipProfile? profile) async {
+    if (profile == null) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final submissionKey = _buildOcrSubmissionKey(profile);
+    final storedSubmissionCycle = prefs.getString(submissionKey) ?? '';
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _lastOcrSubmissionCycle = storedSubmissionCycle;
+      _showOcrWindowBanner = !_hasSubmittedCurrentCycle;
+    });
   }
 
   Future<void> _loadComplaintLocation() async {
@@ -1044,17 +1740,22 @@ class _PostSignInPageState extends State<PostSignInPage>
     await prefs.setString(_langKey, code);
   }
 
-  Future<void> _markCurrentCycleSubmitted() async {
-    final cycle = _cycleKey(DateTime.now());
+  Future<void> _markCurrentCycleSubmitted([String? cycle]) async {
+    final submissionCycle = cycle != null && cycle.trim().isNotEmpty
+        ? cycle.trim()
+        : _cycleKey(DateTime.now());
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_ocrSubmissionKey, cycle);
+    final profile = await OwnershipChangeService.fetchOwnershipProfile();
+    final submissionKey = _buildOcrSubmissionKey(profile);
+
+    await prefs.setString(submissionKey, submissionCycle);
 
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _lastOcrSubmissionCycle = cycle;
+      _lastOcrSubmissionCycle = submissionCycle;
       _showOcrWindowBanner = false;
       _bannerDismissed = true;
     });
@@ -1072,9 +1773,34 @@ class _PostSignInPageState extends State<PostSignInPage>
 
     final meterNumber = result['meter_number'] ?? '';
     final meterReading = result['meter_reading'] ?? '';
+    final billingCycle = result['billing_cycle'] ?? '';
 
     if (meterNumber.trim().isNotEmpty || meterReading.trim().isNotEmpty) {
-      await _markCurrentCycleSubmitted();
+      await _markCurrentCycleSubmitted(billingCycle);
+      await _loadBills();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _newlyGeneratedBillCycle = billingCycle.trim().isNotEmpty
+            ? billingCycle.trim()
+            : BillingService.currentCycleKey();
+      });
+      _selectFeature(DashboardFeature.bill);
+
+      messenger.showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            _t(
+              'Bill generated successfully. Review it in the Bill section and tap Pay Now when ready.',
+              'ቢል በተሳካ ሁኔታ ተፈጥሯል። በቢል ክፍሉ ውስጥ ይመልከቱ እና ሲዘጋጁ Pay Now ይጫኑ።',
+            ),
+          ),
+        ),
+      );
+      return;
     }
 
     messenger.showSnackBar(
@@ -1082,8 +1808,8 @@ class _PostSignInPageState extends State<PostSignInPage>
         behavior: SnackBarBehavior.floating,
         content: Text(
           _t(
-            'Meter Number: $meterNumber | Meter Reading: $meterReading',
-            'ሜትር ቁጥር: $meterNumber | ንባብ: $meterReading',
+            'No bill was generated from OCR. Please retry the scan.',
+            'ከOCR ቢል አልተፈጠረም። እባክዎ እንደገና ይሞክሩ።',
           ),
         ),
       ),
@@ -1226,21 +1952,56 @@ class _PostSignInPageState extends State<PostSignInPage>
   }
 
   Future<void> _applyForLatePayment() async {
-    if (!mounted) {
+    if (!mounted || _isOcrActionBusy) {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          _t(
-            'Late payment request submitted. Our team will review it shortly.',
-            'የዘገየ ክፍያ ጥያቄዎ ተልኳል። በቅርቡ ይመረመራል።',
+    setState(() {
+      _isOcrActionBusy = true;
+    });
+
+    try {
+      final result = await OcrWindowService.requestLateOcrAccess(
+        customerType: _selectedCustomerType.apiValue,
+      );
+      final penaltyRate =
+          double.tryParse(result['penaltyRatePercent']?.toString() ?? '') ?? 0;
+
+      await _syncOcrWindowStatus();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            _t(
+              'Late OCR access approved. Penalty rate: ${penaltyRate.toStringAsFixed(2)}%. You can now scan your meter.',
+              'ዘገይቶ OCR ፍቃድ ጸድቋል። የቅጣት መጠን: ${penaltyRate.toStringAsFixed(2)}%። አሁን ሜትርዎን መስካን ይችላሉ።',
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOcrActionBusy = false;
+        });
+      }
+    }
   }
 
   InputDecoration _ownershipFieldDecoration(String label) {
@@ -1939,6 +2700,14 @@ class _PostSignInPageState extends State<PostSignInPage>
   }
 
   Widget _buildPlaceholderContent(DashboardFeature feature) {
+    if (feature == DashboardFeature.bill) {
+      return _buildBillingPlaceholder();
+    }
+
+    if (feature == DashboardFeature.consumption) {
+      return _buildConsumptionPlaceholder();
+    }
+
     if (feature == DashboardFeature.notifications) {
       return _buildNotificationsPlaceholder();
     }
@@ -2373,6 +3142,268 @@ class _PostSignInPageState extends State<PostSignInPage>
                   ),
               ],
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBillingPlaceholder() {
+    final cardBg = _isDarkMode ? _darkSurface : Colors.white;
+    final textColor = _isDarkMode ? Colors.white : const Color(0xFF0F172A);
+    final bodyColor = _isDarkMode ? _darkMuted : const Color(0xFF475569);
+    final history = _billHistory;
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: _isDarkMode ? _darkBorder : const Color(0xFFE2E8F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: _isDarkMode ? 0.26 : 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.receipt_long,
+                color: Color(0xFF1E90FF),
+                size: 28,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _t('Bills', 'ቢሎች'),
+                  style: GoogleFonts.syne(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: textColor,
+                  ),
+                ),
+              ),
+              _buildCornerRefreshButton(
+                isLoading: _isLoadingBills,
+                onPressed: _loadBills,
+                tooltip: _t('Refresh bills', 'ቢሎችን አድስ'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _t(
+              'Generated bills are listed by month. Pay from this section using Chapa test mode.',
+              'የተፈጠሩ ቢሎች በወር ይታያሉ። ክፍያውን ከዚህ ክፍል በChapa የሙከራ ሁኔታ ይፈጽሙ።',
+            ),
+            style: TextStyle(color: bodyColor, height: 1.45),
+          ),
+          if (_billError != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFCA5A5)),
+              ),
+              child: Text(
+                _billError!,
+                style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12),
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Expanded(
+            child: _isLoadingBills
+                ? const Center(child: CircularProgressIndicator())
+                : history.isEmpty
+                ? Center(
+                    child: Text(
+                      _t(
+                        'No bills generated yet. Submit OCR reading to generate your first bill.',
+                        'እስካሁን ቢል አልተፈጠረም። የመጀመሪያዎን ቢል ለመፍጠር OCR ንባብ ያስገቡ።',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: bodyColor),
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: history.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final bill = history[index];
+                      final isPaid = bill.isPaid;
+                      final isNewest =
+                          _newlyGeneratedBillCycle != null &&
+                          bill.cycleKey == _newlyGeneratedBillCycle;
+                      final cardBorderColor = isPaid
+                          ? const Color(0xFF86EFAC)
+                          : const Color(0xFFFCD34D);
+                      final cardGradient = isPaid
+                          ? const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFF0FDF4), Color(0xFFE2FBEA)],
+                            )
+                          : const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFFFFBEB), Color(0xFFFFF4D6)],
+                            );
+                      final cardShadowColor = isPaid
+                          ? const Color(0x3316A34A)
+                          : const Color(0x33F59E0B);
+
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: cardBorderColor),
+                          gradient: cardGradient,
+                          boxShadow: [
+                            BoxShadow(
+                              color: cardShadowColor,
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _cycleToMonthLabel(bill.cycleKey),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                      color: Color(0xFF1F2937),
+                                    ),
+                                  ),
+                                ),
+                                if (isNewest)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFDBEAFE),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      _t('New', 'አዲስ'),
+                                      style: const TextStyle(
+                                        color: Color(0xFF1E40AF),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _t(
+                                'Amount: ${bill.amountDue.toStringAsFixed(2)} ETB',
+                                'ጠቅላላ ክፍያ: ${bill.amountDue.toStringAsFixed(2)} ብር',
+                              ),
+                              style: const TextStyle(
+                                color: Color(0xFF111827),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              _t(
+                                'Meter: ${bill.meterNumber} | Reading: ${bill.readingValue}',
+                                'ሜትር: ${bill.meterNumber} | ንባብ: ${bill.readingValue}',
+                              ),
+                              style: const TextStyle(
+                                color: Color(0xFF374151),
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              _t(
+                                'Status: ${isPaid ? 'PAID' : 'UNPAID'}',
+                                'ሁኔታ: ${isPaid ? 'PAID' : 'UNPAID'}',
+                              ),
+                              style: TextStyle(
+                                color: isPaid
+                                    ? const Color(0xFF166534)
+                                    : const Color(0xFF92400E),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (bill.paymentReference != null &&
+                                bill.paymentReference!.trim().isNotEmpty) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                _t(
+                                  'Reference: ${bill.paymentReference}',
+                                  'ማጣቀሻ: ${bill.paymentReference}',
+                                ),
+                                style: const TextStyle(
+                                  color: Color(0xFF475569),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: ElevatedButton.icon(
+                                onPressed: (isPaid || _isPayingBill)
+                                    ? null
+                                    : () => _payBill(bill),
+                                icon: _isPayingBill
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : Icon(
+                                        isPaid
+                                            ? Icons.check_circle_outline
+                                            : Icons.payments_outlined,
+                                      ),
+                                label: Text(
+                                  isPaid
+                                      ? _t('Paid', 'ተከፍሏል')
+                                      : _t('Pay Now', 'አሁን ክፈል'),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: isPaid
+                                      ? const Color(0xFF16A34A)
+                                      : const Color(0xFF1E90FF),
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -3178,8 +4209,8 @@ class _PostSignInPageState extends State<PostSignInPage>
 
     final bodyText = hasSubmitted
         ? _t(
-            'You already submitted and paid for this billing cycle. The banner stays hidden until next month.',
-            'ይህ የክፍያ ዑደት ተልኳል እና ተከፍሏል። ማሳያው እስከሚቀጥለው ወር ድረስ ይደበቃል።',
+            'Your monthly bill has already been generated. OCR is locked for this cycle, and payment continues in the Bill section.',
+            'የወርሃዊ ቢልዎ ተፈጥሯል። OCR ለዚህ ዑደት ተዘግቷል፣ ክፍያው በቢል ክፍል ይቀጥላል።',
           )
         : shouldShowOpen
         ? _t(
@@ -3192,7 +4223,7 @@ class _PostSignInPageState extends State<PostSignInPage>
           );
 
     final buttonLabel = hasSubmitted
-        ? _t('Submitted for this month', 'ለዚህ ወር ተልኳል')
+        ? _t('Bill Generated', 'ቢል ተፈጥሯል')
         : shouldShowOpen
         ? _t('Start OCR Scan', 'OCR ስካን ጀምር')
         : _t('Apply for Late Payment', 'ለዘገየ ክፍያ ያመልክቱ');
@@ -4342,6 +5373,41 @@ class _PostSignInPageState extends State<PostSignInPage>
                     ),
                   ),
                   ListTile(
+                    leading: const Icon(Icons.category_outlined),
+                    title: Text(_t('Type', 'ዓይነት')),
+                    subtitle: DropdownButtonHideUnderline(
+                      child: DropdownButton<BillingCustomerType>(
+                        value: _selectedCustomerType,
+                        isExpanded: true,
+                        dropdownColor: _isDarkMode
+                            ? _darkSurface
+                            : const Color(0xFF124A86),
+                        style: const TextStyle(color: Colors.white),
+                        iconEnabledColor: Colors.white,
+                        onChanged: (value) async {
+                          if (value == null) {
+                            return;
+                          }
+                          await BillingService.saveSelectedCustomerType(value);
+                          if (!mounted) {
+                            return;
+                          }
+                          setState(() {
+                            _selectedCustomerType = value;
+                          });
+                        },
+                        items: BillingCustomerType.values
+                            .map(
+                              (type) => DropdownMenuItem(
+                                value: type,
+                                child: Text(type.label),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ),
+                  ListTile(
                     leading: const Icon(Icons.swap_horiz_outlined),
                     title: Text(_t('Ownership Change', 'የባለቤትነት ለውጥ')),
                     onTap: _openOwnershipChangeModal,
@@ -4738,6 +5804,252 @@ class _FloatingHalfCircleSpec {
   final double phase;
   final double speed;
   final double opacity;
+}
+
+class _MonthlyConsumptionPoint {
+  const _MonthlyConsumptionPoint({
+    required this.cycleKey,
+    required this.monthLabel,
+    required this.consumption,
+    required this.deltaFromPreviousMonth,
+    required this.color,
+  });
+
+  final String cycleKey;
+  final String monthLabel;
+  final double consumption;
+  final double deltaFromPreviousMonth;
+  final Color color;
+}
+
+class _ConsumptionLegendRow extends StatelessWidget {
+  const _ConsumptionLegendRow({
+    required this.point,
+    required this.bodyColor,
+    required this.isDarkMode,
+    required this.label,
+    required this.valueLabel,
+    required this.deltaLabel,
+  });
+
+  final _MonthlyConsumptionPoint point;
+  final Color bodyColor;
+  final bool isDarkMode;
+  final String label;
+  final String valueLabel;
+  final String deltaLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: point.color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: point.color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: point.color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
+                    color: isDarkMode ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  valueLabel,
+                  style: TextStyle(color: bodyColor, fontSize: 12.5),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            deltaLabel,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: bodyColor,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonthlyConsumptionPieChart extends StatelessWidget {
+  const _MonthlyConsumptionPieChart({
+    required this.points,
+    required this.totalConsumption,
+    required this.isDarkMode,
+    required this.centerTitle,
+    required this.centerValue,
+  });
+
+  final List<_MonthlyConsumptionPoint> points;
+  final double totalConsumption;
+  final bool isDarkMode;
+  final String centerTitle;
+  final String centerValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallbackColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFFCBD5E1)
+        : const Color(0xFF334155);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: points.first.color.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            centerTitle,
+            style: TextStyle(
+              color: isDarkMode ? Colors.white : const Color(0xFF0F172A),
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 12),
+          AspectRatio(
+            aspectRatio: 1,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CustomPaint(
+                  painter: _MonthlyConsumptionPiePainter(points),
+                  child: const SizedBox.expand(),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      centerValue,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.syne(
+                        color: isDarkMode
+                            ? Colors.white
+                            : const Color(0xFF0F172A),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 20,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      totalConsumption <= 0
+                          ? '0%'
+                          : '${((points.isNotEmpty ? points.last.consumption : 0) / totalConsumption * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        color: fallbackColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Pie chart split by the latest tracked months.',
+            style: TextStyle(color: fallbackColor, fontSize: 11.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonthlyConsumptionPiePainter extends CustomPainter {
+  _MonthlyConsumptionPiePainter(this.points);
+
+  final List<_MonthlyConsumptionPoint> points;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final total = points.fold<double>(
+      0,
+      (sum, point) => sum + point.consumption,
+    );
+    final center = size.center(Offset.zero);
+    final radius = math.min(size.width, size.height) / 2;
+    final strokeWidth = radius * 0.34;
+    final rect = Rect.fromCircle(
+      center: center,
+      radius: radius - strokeWidth / 2,
+    );
+    final basePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = const Color(0xFFD9E6F3);
+
+    canvas.drawArc(rect, 0, math.pi * 2, false, basePaint);
+
+    if (total <= 0) {
+      final emptyPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round
+        ..color = const Color(0xFFCBD5E1);
+      canvas.drawArc(rect, -math.pi / 2, math.pi * 2, false, emptyPaint);
+      return;
+    }
+
+    var startAngle = -math.pi / 2;
+    for (final point in points) {
+      if (point.consumption <= 0) {
+        continue;
+      }
+
+      final sweepAngle = (point.consumption / total) * math.pi * 2;
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.butt
+        ..color = point.color;
+      canvas.drawArc(rect, startAngle, sweepAngle, false, paint);
+      startAngle += sweepAngle;
+    }
+
+    final holePaint = Paint()..color = Colors.white.withValues(alpha: 0.9);
+    canvas.drawCircle(center, radius - strokeWidth + 2, holePaint);
+
+    final rimPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = const Color(0xFFE2E8F0);
+    canvas.drawCircle(center, radius - strokeWidth / 2, rimPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MonthlyConsumptionPiePainter oldDelegate) {
+    return oldDelegate.points != points;
+  }
 }
 
 class _ComplaintDraft {

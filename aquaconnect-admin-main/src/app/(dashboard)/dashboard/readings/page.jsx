@@ -14,6 +14,7 @@ export default function DashboardReadingsPage() {
     closeDate: "",
   });
   const [openingWindow, setOpeningWindow] = useState(false);
+  const [expiringWindow, setExpiringWindow] = useState(false);
   const [scheduleMessage, setScheduleMessage] = useState("");
 
   useEffect(() => {
@@ -98,6 +99,28 @@ export default function DashboardReadingsPage() {
       );
     } finally {
       setOpeningWindow(false);
+    }
+  };
+
+  const handleExpireOcrWindow = async () => {
+    setScheduleMessage("");
+
+    if (!windowStatus?.isOpen && !windowStatus?.isScheduled) {
+      setScheduleMessage("There is no active OCR window to expire.");
+      return;
+    }
+
+    setExpiringWindow(true);
+    try {
+      const result = await superAdminService.expireOcrWindow();
+      await refreshWindowStatus();
+      setScheduleMessage(result?.message || "OCR window expired successfully.");
+    } catch (error) {
+      setScheduleMessage(
+        error?.message || "Unable to expire OCR window. Please try again.",
+      );
+    } finally {
+      setExpiringWindow(false);
     }
   };
 
@@ -220,7 +243,7 @@ export default function DashboardReadingsPage() {
           <p className="text-xs text-[rgba(232,244,240,0.75)] mb-3">
             Schedule OCR opening window for all customer mobile apps.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
             <label className="flex flex-col gap-1">
               <span className="text-[10px] uppercase tracking-widest text-[rgba(232,244,240,0.35)]">
                 Start Date
@@ -260,6 +283,18 @@ export default function DashboardReadingsPage() {
               className="h-10 rounded-lg bg-[#1D9E75] text-[#032015] text-sm font-semibold disabled:opacity-60"
             >
               {openingWindow ? "Opening..." : "Open OCR Window"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExpireOcrWindow}
+              disabled={
+                expiringWindow ||
+                (!windowStatus?.isOpen && !windowStatus?.isScheduled)
+              }
+              className="h-10 rounded-lg border border-[rgba(226,75,74,0.35)] bg-[rgba(226,75,74,0.1)] text-[#ff9c9b] text-sm font-semibold disabled:opacity-50"
+            >
+              {expiringWindow ? "Expiring..." : "Expire OCR Window"}
             </button>
           </div>
 

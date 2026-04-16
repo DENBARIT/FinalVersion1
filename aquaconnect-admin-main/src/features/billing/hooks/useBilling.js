@@ -107,7 +107,7 @@ export function useBilling() {
   return { reports: filtered, totals, search, setSearch, exportCSV, loading };
 }
 
-export function useTariff() {
+export function useTariff(customerType = "RESIDENTIAL") {
   const [tariffs, setTariffs] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -129,20 +129,45 @@ export function useTariff() {
     const now = new Date();
     return (
       [...tariffs]
-        .filter((t) => new Date(t.effectiveFrom) <= now)
+        .filter(
+          (t) =>
+            new Date(t.effectiveFrom) <= now &&
+            String(t.customerType || "RESIDENTIAL").toUpperCase() ===
+              String(customerType || "RESIDENTIAL").toUpperCase(),
+        )
         .sort(
           (a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom),
         )[0] ?? null
     );
-  }, [tariffs]);
+  }, [customerType, tariffs]);
 
-  const setTariff = async (data) => {
+  const saveTariff = async (data) => {
     setLoading(true);
     try {
-      await superAdminService.createTariff({
-        pricePerM3: Number(data.pricePerM3),
+      const payload = {
+        name: data.name,
+        customerType: data.customerType,
         effectiveFrom: data.effectiveFrom,
-      });
+        latePenaltyPerDayPercent: Number(data.latePenaltyPerDayPercent || 0),
+        blocks: (Array.isArray(data.blocks) ? data.blocks : []).map(
+          (block) => ({
+            fromM3: Number(block.fromM3),
+            toM3:
+              block.toM3 === "" ||
+              block.toM3 === null ||
+              block.toM3 === undefined
+                ? null
+                : Number(block.toM3),
+            pricePerM3: Number(block.pricePerM3),
+          }),
+        ),
+      };
+
+      if (data.id) {
+        await superAdminService.updateTariff(data.id, payload);
+      } else {
+        await superAdminService.createTariff(payload);
+      }
 
       const rows = await superAdminService.getTariffs();
       setTariffs(Array.isArray(rows) ? rows : []);
@@ -151,5 +176,5 @@ export function useTariff() {
     }
   };
 
-  return { tariffs, effectiveTariff, loading, setTariff };
+  return { tariffs, effectiveTariff, loading, saveTariff };
 }

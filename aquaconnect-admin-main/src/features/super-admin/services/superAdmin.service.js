@@ -434,11 +434,24 @@ export const superAdminService = {
       timeoutMs: 45000,
       retries: 0,
     }),
+  expireOcrWindow: () =>
+    apiRequest("/super-admin/ocr-window/expire", {
+      ...withAuth,
+      method: "POST",
+      timeoutMs: 20000,
+      retries: 0,
+    }),
   getTariffs: () => apiRequest("/super-admin/tariffs", withAuth),
   createTariff: (body) =>
     apiRequest("/super-admin/tariffs", {
       ...withAuth,
       method: "POST",
+      body,
+    }),
+  updateTariff: (id, body) =>
+    apiRequest(`/super-admin/tariffs/${id}`, {
+      ...withAuth,
+      method: "PUT",
       body,
     }),
 };

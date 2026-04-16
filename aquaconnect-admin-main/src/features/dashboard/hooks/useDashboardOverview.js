@@ -314,7 +314,12 @@ export function useDashboardOverview() {
     const now = new Date();
     return (
       [...tariffs]
-        .filter((t) => new Date(t.effectiveFrom) <= now)
+        .filter(
+          (t) =>
+            new Date(t.effectiveFrom) <= now &&
+            String(t.customerType || "RESIDENTIAL").toUpperCase() ===
+              "RESIDENTIAL",
+        )
         .sort(
           (a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom),
         )[0] || null

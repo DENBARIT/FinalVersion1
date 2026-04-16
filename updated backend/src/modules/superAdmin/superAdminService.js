@@ -9,11 +9,15 @@ import {
   sendOcrWindowOpenedNotice,
   sendOcrWindowReminderNotice,
   sendOcrWindowClosedNotice,
+  sendBillingPaymentReminderNotice,
   sendEmail,
 } from '../../config/email.js';
 import { formatDualCalendarDate } from '../../utils/ethiopianCalendar.js';
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
+const BILL_PENALTY_GRACE_MONTHS = Number(process.env.BILL_PENALTY_GRACE_MONTHS || 2);
+const BILL_MONTH_DAYS = Number(process.env.BILL_MONTH_DAYS || 30);
+const BILL_GRACE_DAYS = Math.max(0, BILL_PENALTY_GRACE_MONTHS * BILL_MONTH_DAYS);
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -127,6 +131,93 @@ const normalizeScheduleBlocks = (value) => {
     }))
     .filter((block) => Boolean(block.startDay && block.endDay && block.startTime && block.endTime))
     .filter((block) => WEEK_DAYS.includes(block.startDay) && WEEK_DAYS.includes(block.endDay));
+};
+
+const DEFAULT_TARIFF_BLOCKS = [
+  { fromM3: 0, toM3: 7, pricePerM3: 1.75 },
+  { fromM3: 8, toM3: 20, pricePerM3: 3.8 },
+  { fromM3: 21, toM3: 40, pricePerM3: 4.75 },
+  { fromM3: 41, toM3: 100, pricePerM3: 14.57 },
+  { fromM3: 101, toM3: 300, pricePerM3: 19.42 },
+  { fromM3: 301, toM3: 500, pricePerM3: 24.28 },
+  { fromM3: 501, toM3: null, pricePerM3: 26.71 },
+];
+
+const CUSTOMER_TYPES = new Set(['RESIDENTIAL', 'COMMERCIAL', 'GOVERNMENTAL']);
+
+const normalizeCustomerType = (value) => {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  return CUSTOMER_TYPES.has(normalized) ? normalized : '';
+};
+
+const normalizeTariffBlocksInput = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((block) => ({
+      fromM3: Number.parseInt(block?.fromM3, 10),
+      toM3:
+        block?.toM3 === null || block?.toM3 === undefined || block?.toM3 === ''
+          ? null
+          : Number.parseInt(block?.toM3, 10),
+      pricePerM3: Number(block?.pricePerM3),
+    }))
+    .filter((block) => Number.isFinite(block.fromM3) && Number.isFinite(block.pricePerM3));
+};
+
+const validateAndNormalizeTariffBlocks = (rawBlocks) => {
+  const blocks = normalizeTariffBlocksInput(rawBlocks).sort((a, b) => a.fromM3 - b.fromM3);
+
+  if (!blocks.length) {
+    throw new Error('At least one tariff tier block is required');
+  }
+
+  if (blocks[0].fromM3 !== 0) {
+    throw new Error('Tariff blocks must start from 0 m3');
+  }
+
+  const normalized = [];
+  let previousTo = null;
+
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i];
+
+    if (!Number.isInteger(block.fromM3) || block.fromM3 < 0) {
+      throw new Error('Each tariff block fromM3 must be a non-negative integer');
+    }
+
+    if (block.toM3 !== null && (!Number.isInteger(block.toM3) || block.toM3 < block.fromM3)) {
+      throw new Error(
+        'Each tariff block toM3 must be null or an integer greater than or equal to fromM3'
+      );
+    }
+
+    if (!Number.isFinite(block.pricePerM3) || block.pricePerM3 <= 0) {
+      throw new Error('Each tariff block pricePerM3 must be a positive number');
+    }
+
+    if (previousTo === null && i > 0) {
+      throw new Error('No tariff block is allowed after an open-ended block');
+    }
+
+    if (previousTo !== null && block.fromM3 !== previousTo + 1) {
+      throw new Error('Tariff blocks must be continuous without gaps or overlaps');
+    }
+
+    normalized.push({
+      fromM3: block.fromM3,
+      toM3: block.toM3,
+      pricePerM3: Number(block.pricePerM3.toFixed(2)),
+    });
+
+    previousTo = block.toM3;
+  }
+
+  return normalized;
 };
 
 const expandDaysInRange = (startDay, endDay) => {
@@ -615,6 +706,39 @@ const getDaysRemaining = (now, closeDate) => {
   return Math.floor((closeUtc - todayUtc) / (24 * 60 * 60 * 1000));
 };
 
+const getOverdueDays = (now, dueDate) => {
+  const todayUtc = getUtcDayStart(now).getTime();
+  const dueUtc = getUtcDayStart(dueDate).getTime();
+  return Math.max(0, Math.floor((todayUtc - dueUtc) / (24 * 60 * 60 * 1000)));
+};
+
+const toBillCycleKey = (billYear, billMonth) => `${billYear}-${String(billMonth).padStart(2, '0')}`;
+
+const hasBillingReminderEvent = async (billId, eventCode) => {
+  const existing = await prisma.notification.findFirst({
+    where: {
+      type: 'PAYMENT_REMINDER',
+      AND: [
+        {
+          data: {
+            path: ['billId'],
+            equals: billId,
+          },
+        },
+        {
+          data: {
+            path: ['eventCode'],
+            equals: eventCode,
+          },
+        },
+      ],
+    },
+    select: { id: true },
+  });
+
+  return Boolean(existing);
+};
+
 const hasLifecycleNotificationToday = async (eventCode, now) => {
   const dayStart = getUtcDayStart(now);
   const dayEnd = new Date(dayStart);
@@ -717,6 +841,8 @@ const toTariffView = (tariff) => {
     name: tariff.name,
     version: tariff.version,
     isActive: tariff.isActive,
+    customerType: tariff.customerType || 'RESIDENTIAL',
+    latePenaltyPerDayPercent: Number(tariff.latePenaltyPerDayPercent || 0),
     effectiveFrom: tariff.effectiveFrom,
     effectiveTo: tariff.effectiveTo,
     createdAt: tariff.createdAt,
@@ -2113,16 +2239,12 @@ class SuperAdminService {
       complaintId,
       officerId: officer.id,
       sentEmail: Boolean(targetEmail),
-      sentInApp: true,
     };
   }
 
-  static async getSchedules({ subCityId, woredaId, day }) {
+  static async getSchedules() {
     const rows = await prisma.waterSchedule.findMany({
       where: {
-        ...(subCityId ? { subCityId } : {}),
-        ...(woredaId ? { woredaId } : {}),
-        ...(day ? { dayOfWeek: day } : {}),
         deletedAt: null,
       },
       include: {
@@ -2140,6 +2262,8 @@ class SuperAdminService {
   }
 
   static async getBills({ subCityId, woredaId }) {
+    await this.processBillingPenaltyLifecycle();
+
     const rows = await prisma.bill.findMany({
       where: {
         ...(subCityId ? { subCityId } : {}),
@@ -2180,6 +2304,210 @@ class SuperAdminService {
     });
 
     return rows.map(toBillView);
+  }
+
+  static async processBillingPenaltyLifecycle() {
+    const now = new Date();
+
+    const unpaidBills = await prisma.bill.findMany({
+      where: {
+        status: {
+          in: ['UNPAID', 'OVERDUE', 'ESCALATED'],
+        },
+        dueDate: {
+          lt: now,
+        },
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+        tariff: {
+          select: {
+            latePenaltyPerDayPercent: true,
+          },
+        },
+      },
+    });
+
+    if (!unpaidBills.length) {
+      return {
+        processed: 0,
+        updated: 0,
+        remindersSent: 0,
+      };
+    }
+
+    const tariffRateCache = new Map();
+    let updated = 0;
+    let remindersSent = 0;
+
+    for (const bill of unpaidBills) {
+      const overdueDays = getOverdueDays(now, bill.dueDate);
+      if (overdueDays <= 0) {
+        continue;
+      }
+
+      const customerType = String(bill.customerType || 'RESIDENTIAL').toUpperCase();
+      let penaltyRatePercent = toNumber(bill.tariff?.latePenaltyPerDayPercent);
+
+      if (!Number.isFinite(penaltyRatePercent) || penaltyRatePercent < 0) {
+        penaltyRatePercent = 0;
+      }
+
+      if (penaltyRatePercent <= 0) {
+        if (!tariffRateCache.has(customerType)) {
+          const activeTariff = await prisma.tariff.findFirst({
+            where: {
+              isActive: true,
+              customerType,
+              effectiveFrom: {
+                lte: now,
+              },
+            },
+            orderBy: {
+              effectiveFrom: 'desc',
+            },
+            select: {
+              latePenaltyPerDayPercent: true,
+            },
+          });
+
+          tariffRateCache.set(customerType, toNumber(activeTariff?.latePenaltyPerDayPercent));
+        }
+
+        penaltyRatePercent = Math.max(0, Number(tariffRateCache.get(customerType) || 0));
+      }
+
+      const penaltyDays = Math.max(0, overdueDays - BILL_GRACE_DAYS);
+      const baseAmount = toNumber(bill.amount);
+      const existingLatePenaltyAmount = toNumber(bill.latePenaltyAmount);
+      const existingLateDays = Math.max(0, Number(bill.lateDays || 0));
+      const existingDailyPenaltyComponent = Number(
+        ((baseAmount * penaltyRatePercent * existingLateDays) / 100).toFixed(2)
+      );
+      // Preserve any fixed penalty component already present on the bill
+      // (for example OCR late-access penalty) and only recompute the daily overdue part.
+      const fixedPenaltyComponent = Math.max(
+        0,
+        Number((existingLatePenaltyAmount - existingDailyPenaltyComponent).toFixed(2))
+      );
+      const dailyPenaltyAmount = Number(
+        ((baseAmount * penaltyRatePercent * penaltyDays) / 100).toFixed(2)
+      );
+      const penaltyAmount = Number((fixedPenaltyComponent + dailyPenaltyAmount).toFixed(2));
+      const totalAmount = Number((baseAmount + penaltyAmount).toFixed(2));
+
+      const nextStatus =
+        bill.status === 'ESCALATED' ? 'ESCALATED' : penaltyDays > 0 ? 'OVERDUE' : 'UNPAID';
+
+      const shouldUpdate =
+        Number(bill.lateDays || 0) !== penaltyDays ||
+        Number(toNumber(bill.latePenaltyAmount).toFixed(2)) !== penaltyAmount ||
+        Number(toNumber(bill.totalAmount).toFixed(2)) !== totalAmount ||
+        bill.status !== nextStatus;
+
+      if (shouldUpdate) {
+        await prisma.bill.update({
+          where: {
+            id: bill.id,
+          },
+          data: {
+            lateDays: penaltyDays,
+            latePenaltyAmount: penaltyAmount,
+            totalAmount,
+            status: nextStatus,
+          },
+        });
+        updated += 1;
+      }
+
+      const recipientEmail = String(bill.customer?.email || '').trim();
+      const recipientName = String(bill.customer?.fullName || 'Customer').trim() || 'Customer';
+      const cycleKey = toBillCycleKey(bill.billYear, bill.billMonth);
+
+      let reminderEventCode = null;
+      let reminderStage = 0;
+
+      if (overdueDays >= BILL_GRACE_DAYS + 1) {
+        reminderEventCode = 'BILL_UNPAID_MONTH_3_ADMIN_WARNING';
+        reminderStage = 3;
+      } else if (overdueDays >= BILL_MONTH_DAYS + 1) {
+        reminderEventCode = 'BILL_UNPAID_MONTH_2_REMINDER';
+        reminderStage = 2;
+      } else if (overdueDays >= 1) {
+        reminderEventCode = 'BILL_UNPAID_MONTH_1_REMINDER';
+        reminderStage = 1;
+      }
+
+      if (reminderEventCode && recipientEmail) {
+        const alreadyNotified = await hasBillingReminderEvent(bill.id, reminderEventCode);
+
+        if (!alreadyNotified) {
+          try {
+            await sendBillingPaymentReminderNotice(recipientEmail, {
+              customerName: recipientName,
+              cycleKey,
+              amountDue: totalAmount,
+              dueDate: bill.dueDate,
+              overdueDays,
+              stage: reminderStage,
+              penaltyRatePercent,
+            });
+
+            if (bill.customerId) {
+              await prisma.notification.create({
+                data: {
+                  userId: bill.customerId,
+                  type: 'PAYMENT_REMINDER',
+                  title: {
+                    en: reminderStage >= 3 ? 'Final payment warning' : 'Bill payment reminder',
+                    am: reminderStage >= 3 ? 'የመጨረሻ የክፍያ ማስጠንቀቂያ' : 'የቢል ክፍያ አስታዋሽ',
+                  },
+                  message: {
+                    en:
+                      reminderStage >= 3
+                        ? 'This is your third unpaid month. Please pay now to avoid administrative actions.'
+                        : `Your bill for ${cycleKey} is unpaid. Please complete payment.`,
+                    am:
+                      reminderStage >= 3
+                        ? 'ይህ ሶስተኛው ያልተከፈለ ወር ነው። አስተዳደራዊ እርምጃ ከመወሰዱ በፊት እባክዎ አሁን ይክፈሉ።'
+                        : `የ${cycleKey} ቢልዎ አልተከፈለም። እባክዎ ክፍያውን ያጠናቁ።`,
+                  },
+                  data: {
+                    billId: bill.id,
+                    cycleKey,
+                    eventCode: reminderEventCode,
+                    overdueDays,
+                    stage: reminderStage,
+                    penaltyRatePercent,
+                  },
+                  isSent: true,
+                  sentVia: ['EMAIL', 'IN_APP'],
+                },
+              });
+            }
+
+            remindersSent += 1;
+          } catch (error) {
+            console.error(
+              `Failed sending billing reminder for bill ${bill.id}:`,
+              error?.message || error
+            );
+          }
+        }
+      }
+    }
+
+    return {
+      processed: unpaidBills.length,
+      updated,
+      remindersSent,
+    };
   }
 
   static async markBillPaid(id, amount) {
@@ -3025,9 +3353,7 @@ class SuperAdminService {
           },
         },
       },
-      orderBy: {
-        effectiveFrom: 'desc',
-      },
+      orderBy: [{ customerType: 'asc' }, { effectiveFrom: 'desc' }],
     });
 
     return rows.map(toTariffView);
@@ -3347,6 +3673,37 @@ class SuperAdminService {
     };
   }
 
+  static async expireOcrWindow() {
+    await this.processOcrWindowLifecycle();
+
+    const expired = await prisma.oCRWindow.updateMany({
+      where: {
+        isActive: true,
+        isLateWindow: false,
+      },
+      data: {
+        isActive: false,
+      },
+    });
+
+    if (!expired.count) {
+      throw new Error('No active OCR window to expire');
+    }
+
+    const latest = await prisma.oCRWindow.findFirst({
+      where: {
+        isLateWindow: false,
+      },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }, { updatedAt: 'desc' }],
+    });
+
+    return {
+      message: 'OCR window expired successfully',
+      expiredCount: expired.count,
+      window: toOcrWindowStatusView(latest),
+    };
+  }
+
   static async getAnnouncements({ limit } = {}) {
     const take = Math.min(Math.max(Number(limit) || 50, 1), 200);
 
@@ -3599,17 +3956,30 @@ class SuperAdminService {
     };
   }
 
-  static async createTariff({ pricePerM3, effectiveFrom }) {
-    const parsedPrice = Number(pricePerM3);
-    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-      throw new Error('Valid pricePerM3 is required');
-    }
-
+  static async createTariff(
+    { name, blocks, pricePerM3, effectiveFrom, customerType, latePenaltyPerDayPercent },
+    createdById = null
+  ) {
     const parsedEffectiveFrom = new Date(effectiveFrom);
     if (Number.isNaN(parsedEffectiveFrom.getTime())) {
       throw new Error('Valid effectiveFrom is required');
     }
 
+    const tariffCustomerType = normalizeCustomerType(customerType) || 'RESIDENTIAL';
+    const penaltyRate = Number(latePenaltyPerDayPercent ?? 0);
+
+    if (!Number.isFinite(penaltyRate) || penaltyRate < 0) {
+      throw new Error('latePenaltyPerDayPercent must be a non-negative number');
+    }
+
+    const rawBlocks =
+      Array.isArray(blocks) && blocks.length
+        ? blocks
+        : Number.isFinite(Number(pricePerM3)) && Number(pricePerM3) > 0
+        ? [{ fromM3: 0, toM3: null, pricePerM3: Number(pricePerM3) }]
+        : DEFAULT_TARIFF_BLOCKS;
+
+    const normalizedBlocks = validateAndNormalizeTariffBlocks(rawBlocks);
     const now = new Date();
     const activateNow = parsedEffectiveFrom <= now;
 
@@ -3629,6 +3999,7 @@ class SuperAdminService {
         await tx.tariff.updateMany({
           where: {
             isActive: true,
+            customerType: tariffCustomerType,
             effectiveTo: null,
           },
           data: {
@@ -3640,18 +4011,15 @@ class SuperAdminService {
 
       return tx.tariff.create({
         data: {
-          name: `Tariff v${nextVersion}`,
+          name: String(name || `Tariff v${nextVersion}`).trim() || `Tariff v${nextVersion}`,
           version: nextVersion,
           isActive: activateNow,
+          customerType: tariffCustomerType,
+          latePenaltyPerDayPercent: Number(penaltyRate.toFixed(4)),
           effectiveFrom: parsedEffectiveFrom,
+          createdById,
           blocks: {
-            create: [
-              {
-                fromM3: 0,
-                toM3: null,
-                pricePerM3: parsedPrice,
-              },
-            ],
+            create: normalizedBlocks,
           },
         },
         include: {
@@ -3665,6 +4033,139 @@ class SuperAdminService {
     });
 
     return toTariffView(created);
+  }
+
+  static async updateTariff(
+    id,
+    {
+      name,
+      blocks,
+      effectiveFrom,
+      effectiveTo,
+      isActive,
+      customerType,
+      latePenaltyPerDayPercent,
+    } = {}
+  ) {
+    const target = await prisma.tariff.findUnique({
+      where: { id },
+      include: {
+        blocks: {
+          orderBy: {
+            fromM3: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!target) {
+      throw new Error('Tariff not found');
+    }
+
+    const tariffCustomerType =
+      normalizeCustomerType(customerType) || target.customerType || 'RESIDENTIAL';
+    const penaltyRate =
+      latePenaltyPerDayPercent === undefined
+        ? Number(target.latePenaltyPerDayPercent || 0)
+        : Number(latePenaltyPerDayPercent);
+
+    if (!Number.isFinite(penaltyRate) || penaltyRate < 0) {
+      throw new Error('latePenaltyPerDayPercent must be a non-negative number');
+    }
+
+    const normalizedBlocks =
+      blocks === undefined
+        ? target.blocks.map((block) => ({ ...block }))
+        : validateAndNormalizeTariffBlocks(blocks);
+
+    const parsedEffectiveFrom =
+      effectiveFrom === undefined ? new Date(target.effectiveFrom) : new Date(effectiveFrom);
+
+    if (Number.isNaN(parsedEffectiveFrom.getTime())) {
+      throw new Error('Valid effectiveFrom is required');
+    }
+
+    const parsedEffectiveTo =
+      effectiveTo === undefined
+        ? target.effectiveTo
+          ? new Date(target.effectiveTo)
+          : null
+        : effectiveTo === null || effectiveTo === ''
+        ? null
+        : new Date(effectiveTo);
+
+    if (parsedEffectiveTo && Number.isNaN(parsedEffectiveTo.getTime())) {
+      throw new Error('Valid effectiveTo is required');
+    }
+
+    if (parsedEffectiveTo && parsedEffectiveTo <= parsedEffectiveFrom) {
+      throw new Error('effectiveTo must be after effectiveFrom');
+    }
+
+    const now = new Date();
+    const shouldBeActiveByDate =
+      parsedEffectiveFrom <= now && (!parsedEffectiveTo || parsedEffectiveTo > now);
+    const nextActiveState =
+      typeof isActive === 'boolean'
+        ? isActive
+          ? shouldBeActiveByDate
+          : false
+        : shouldBeActiveByDate;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (nextActiveState) {
+        await tx.tariff.updateMany({
+          where: {
+            isActive: true,
+            customerType: tariffCustomerType,
+            effectiveTo: null,
+            NOT: { id },
+          },
+          data: {
+            isActive: false,
+            effectiveTo: now,
+          },
+        });
+      }
+
+      await tx.tariffBlock.deleteMany({
+        where: {
+          tariffId: id,
+        },
+      });
+
+      await tx.tariffBlock.createMany({
+        data: normalizedBlocks.map((block) => ({
+          tariffId: id,
+          fromM3: block.fromM3,
+          toM3: block.toM3,
+          pricePerM3: block.pricePerM3,
+        })),
+      });
+
+      return tx.tariff.update({
+        where: {
+          id,
+        },
+        data: {
+          name: name === undefined ? target.name : String(name || '').trim() || target.name,
+          customerType: tariffCustomerType,
+          latePenaltyPerDayPercent: Number(penaltyRate.toFixed(4)),
+          effectiveFrom: parsedEffectiveFrom,
+          effectiveTo: parsedEffectiveTo,
+          isActive: nextActiveState,
+        },
+        include: {
+          blocks: {
+            orderBy: {
+              fromM3: 'asc',
+            },
+          },
+        },
+      });
+    });
+
+    return toTariffView(updated);
   }
 }
 

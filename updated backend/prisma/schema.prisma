@@ -31,6 +31,12 @@ enum FieldOfficerType {
   INSPECTOR
 }
 
+enum CustomerType {
+  RESIDENTIAL
+  COMMERCIAL
+  GOVERNMENTAL
+}
+
 enum AccountStatus {
   ACTIVE
   SUSPENDED
@@ -341,8 +347,9 @@ model Bill {
   subCityId String
   subCity   SubCity? @relation(fields: [subCityId], references: [id], onDelete: Restrict)
 
-  billMonth Int
-  billYear  Int
+  billMonth    Int
+  billYear     Int
+  customerType CustomerType @default(RESIDENTIAL)
 
   billingDate DateTime @default(now())
 
@@ -376,6 +383,7 @@ model Bill {
   @@index([meterId])
   @@index([customerId])
   @@index([subCityId])
+  @@index([customerType])
   @@index([status])
   @@index([billYear, billMonth])
   @@index([dueDate])
@@ -978,10 +986,10 @@ model SubCity {
   ocrWindows OCRWindow[]
   reports    Report[]
 
-  readingMode ReadingMode @default(OCR)
-  complaints  Complaint[]
-  bills       Bill[]
-  payments    Payment[]
+  readingMode          ReadingMode           @default(OCR)
+  complaints           Complaint[]
+  bills                Bill[]
+  payments             Payment[]
   pendingRegistrations PendingRegistration[]
 
   billingOfficerAssignments   BillingOfficerAssignment[]
@@ -1023,8 +1031,9 @@ model SystemResource {
 model Tariff {
   id String @id @default(uuid())
 
-  name     String
-  isActive Boolean @default(false)
+  name         String
+  isActive     Boolean      @default(false)
+  customerType CustomerType @default(RESIDENTIAL)
 
   // late payment policy (percentage per day)
   latePenaltyPerDayPercent Float @default(0)
@@ -1048,6 +1057,7 @@ model Tariff {
 
   @@unique([version])
   @@index([isActive])
+  @@index([customerType, isActive])
 }
 
 model TariffBlock {
@@ -1127,10 +1137,10 @@ model User {
   // CUSTOMER only: 1 user -> 1 meter
   // meter           Meter? // optional
   meters          Meter[]
-  email           String  @unique
+  email           String    @unique
   fullName        String
   profileImageUrl String?
-  emailVerified   Boolean @default(false)
+  emailVerified   Boolean   @default(false)
   otp             String?
   otpExpiry       DateTime?
 
@@ -1327,10 +1337,10 @@ model Woreda {
 
   subCity SubCity @relation(fields: [subCityId], references: [id], onDelete: Cascade)
 
-  users      User[]
-  meters     Meter[]
-  schedules  WaterSchedule[]
-  complaints Complaint[]
+  users                User[]
+  meters               Meter[]
+  schedules            WaterSchedule[]
+  complaints           Complaint[]
   pendingRegistrations PendingRegistration[]
 
   billingOfficerAssignments   BillingOfficerAssignment[]

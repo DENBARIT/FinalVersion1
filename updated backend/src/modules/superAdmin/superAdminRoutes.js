@@ -88,6 +88,12 @@ router.post(
   authorize('SUPER_ADMIN'),
   SuperAdminController.openOcrWindow
 );
+router.post(
+  '/ocr-window/expire',
+  authenticate,
+  authorize('SUPER_ADMIN'),
+  SuperAdminController.expireOcrWindow
+);
 router.get('/field-officers', SuperAdminController.getWoredaFieldOfficers);
 router.post('/field-officers', SuperAdminController.createWoredaFieldOfficer);
 router.put('/field-officers/:id', SuperAdminController.updateWoredaFieldOfficer);
@@ -203,5 +209,6 @@ router.put('/schedules/:id', SuperAdminController.updateSchedule);
 router.delete('/schedules/:id', SuperAdminController.deleteSchedule);
 router.get('/tariffs', SuperAdminController.getTariffs);
 router.post('/tariffs', SuperAdminController.createTariff);
+router.put('/tariffs/:id', SuperAdminController.updateTariff);
 
 export default router;
