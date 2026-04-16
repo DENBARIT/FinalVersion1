@@ -609,7 +609,7 @@ class _PostSignInPageState extends State<PostSignInPage>
                     width: math.max(metricWidth, 150),
                     child: _consumptionMetricCard(
                       label: _t('Month change', 'የወር ለውጥ'),
-                        value: currentPoint == null || previousPoint == null
+                      value: currentPoint == null || previousPoint == null
                           ? _t('No comparison', 'ንፅፅር የለም')
                           : _formatConsumptionDelta(monthlyDelta.toDouble()),
                       subtext: currentPoint == null || previousPoint == null
