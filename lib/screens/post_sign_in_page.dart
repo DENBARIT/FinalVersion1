@@ -479,12 +479,14 @@ class _PostSignInPageState extends State<PostSignInPage>
     ) {
       final entry = visibleEntries[index];
       final previousValue = index > 0 ? visibleEntries[index - 1].value : null;
-      final delta = previousValue == null ? 0 : entry.value - previousValue;
+      final delta = previousValue == null
+          ? 0.0
+          : (entry.value - previousValue).toDouble();
 
       return _MonthlyConsumptionPoint(
         cycleKey: entry.key,
         monthLabel: _cycleToMonthLabel(entry.key),
-        consumption: entry.value,
+        consumption: entry.value.toDouble(),
         deltaFromPreviousMonth: delta,
         color: palette[index % palette.length],
       );
