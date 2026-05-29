@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:city_water_flutter/my_flutter_app/main.dart' as aqua_home;
+import 'package:city_water_flutter/features/home/main.dart' as aqua_home;
 import 'package:city_water_flutter/screens/meter_scan_screen.dart';
 import 'package:city_water_flutter/services/announcement_service.dart';
 import 'package:city_water_flutter/services/auth_service.dart';

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:city_water_flutter/my_flutter_app/main.dart' as aqua_home;
+import 'package:city_water_flutter/features/home/main.dart' as aqua_home;
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/post_sign_in_page.dart';

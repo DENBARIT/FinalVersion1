@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:city_water_flutter/my_flutter_app/main.dart' as aqua_home;
+import 'package:city_water_flutter/features/home/main.dart' as aqua_home;
 import 'package:city_water_flutter/screens/auth/forgot_password_screen.dart';
 import 'package:city_water_flutter/screens/auth/register_screen.dart';
 import 'package:city_water_flutter/screens/post_sign_in_page.dart';
