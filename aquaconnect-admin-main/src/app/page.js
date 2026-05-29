@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Navbar from "@/components/layout/Navbar";
 import DashboardPreview from "@/components/ui/DashboardPreview";
 import Link from "next/link";
+import { superAdminService } from "@/features/super-admin/services/superAdmin.service";
 
 const LANE_NAMES = ["Addis Ketema", "Bole", "Gulele"];
 
@@ -46,41 +47,28 @@ export default function LandingPage() {
   const [pulseTick, setPulseTick] = useState(0);
   const [statusOnline, setStatusOnline] = useState(true);
   const [laneValues, setLaneValues] = useState([42, 78, 58]);
-  const [meterCount, setMeterCount] = useState(12000);
-  const [uptime, setUptime] = useState(99.9);
-  const [subcityCount, setSubcityCount] = useState(6);
+  const [meterCount, setMeterCount] = useState(0);
+  const [subcityCount, setSubcityCount] = useState(0);
+  const [billCount, setBillCount] = useState(0);
+  const [complaintCount, setComplaintCount] = useState(0);
+  const [consumption, setConsumption] = useState(0);
 
   useEffect(() => {
-    const laneTimer = setInterval(() => {
-      setPulseTick((tick) => {
-        const nextTick = tick + 1;
-
-        const cycle = nextTick % 8;
-        setLaneValues([
-          cycle <= 4 ? 38 + cycle * 14 : 94 - (cycle - 4) * 14,
-          cycle <= 4 ? 72 + cycle * 4 : 88 - (cycle - 4) * 4,
-          cycle <= 4 ? 56 + cycle * 5 : 76 - (cycle - 4) * 5,
-        ]);
-
-        setMeterCount((count) => count + 18 + (nextTick % 9));
-        setUptime((count) =>
-          clamp(count + (nextTick % 3 === 0 ? 0.1 : -0.05), 99.2, 99.99),
-        );
-        setSubcityCount(6 + (nextTick % 2));
-
-        return nextTick;
-      });
-    }, 1600);
-
-    const statusTimer = setInterval(() => {
-      setStatusOnline((current) => !current);
-    }, 7000);
-
-    return () => {
-      clearInterval(laneTimer);
-      clearInterval(statusTimer);
-    };
-  }, [pulseTick]);
+    // Fetch stats from backend
+    async function fetchStats() {
+      try {
+        const stats = await superAdminService.getPublicStats();
+        setMeterCount(stats.metersCount || 0);
+        setSubcityCount(stats.subCitiesCount || 0);
+        setBillCount(stats.billsCount || 0);
+        setComplaintCount(stats.complaintsCount || 0);
+        setConsumption(stats.totalConsumption || 0);
+      } catch (e) {
+        // fallback to 0
+      }
+    }
+    fetchStats();
+  }, []);
 
   const metricCards = useMemo(
     () => [
@@ -90,15 +78,32 @@ export default function LandingPage() {
         compact: true,
         suffix: "+",
       },
-      { label: "Uptime", value: uptime, compact: false, suffix: "%" },
       {
         label: "Sub-cities covered",
         value: subcityCount,
         compact: false,
         suffix: "",
       },
+      {
+        label: "Bills",
+        value: billCount,
+        compact: false,
+        suffix: "",
+      },
+      {
+        label: "Complaints",
+        value: complaintCount,
+        compact: false,
+        suffix: "",
+      },
+      {
+        label: "Consumption",
+        value: consumption,
+        compact: false,
+        suffix: " m³",
+      },
     ],
-    [meterCount, uptime, subcityCount],
+    [meterCount, subcityCount, billCount, complaintCount, consumption],
   );
 
   const infoCards = useMemo(

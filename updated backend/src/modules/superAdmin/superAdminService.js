@@ -1,4 +1,5 @@
 import { prisma } from '../../config/db.js';
+import { Prisma } from '@prisma/client';
 import { hashPassword, comparePassword } from '../../utils/hashtoken.js';
 import jwt from 'jsonwebtoken';
 import {
@@ -2312,7 +2313,7 @@ class SuperAdminService {
     const unpaidBills = await prisma.bill.findMany({
       where: {
         status: {
-          in: ['UNPAID', 'OVERDUE', 'ESCALATED'],
+          in: [Prisma.BillStatus.UNPAID, Prisma.BillStatus.OVERDUE, Prisma.BillStatus.ESCALATED],
         },
         dueDate: {
           lt: now,
