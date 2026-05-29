@@ -2310,11 +2310,9 @@ class SuperAdminService {
   static async processBillingPenaltyLifecycle() {
     const now = new Date();
 
-    const unpaidBills = await prisma.bill.findMany({
+    // Query all bills with past due dates (avoid using non-existent ESCALATED enum)
+    const billsDue = await prisma.bill.findMany({
       where: {
-        status: {
-          in: [Prisma.BillStatus.UNPAID, Prisma.BillStatus.OVERDUE, Prisma.BillStatus.ESCALATED],
-        },
         dueDate: {
           lt: now,
         },
@@ -2334,6 +2332,10 @@ class SuperAdminService {
         },
       },
     });
+
+    // Filter by valid status values in JavaScript
+    const billStatusValues = ['UNPAID', 'OVERDUE'];
+    const unpaidBills = billsDue.filter((b) => billStatusValues.includes(b.status));
 
     if (!unpaidBills.length) {
       return {
